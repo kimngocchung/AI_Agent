@@ -1,0 +1,10 @@
+langchain
+google-generativeai
+pydantic
+python-dotenv
+rich
+streamlit
+# Thư viện cho Giai đoạn 3: RAG
+langchain-community     # Chứa các công cụ để tải tài liệu, tạo CSDL vector
+faiss-cpu             # Công cụ tìm kiếm vector siêu nhanh của Facebook AI
+langchain-huggingface # Cung cấp model để biến chữ thành số (embedding)

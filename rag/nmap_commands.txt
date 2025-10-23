@@ -1,0 +1,13 @@
+Nmap Basic Commands
+
+- Ping Scan: Scans for active hosts in a network.
+Command: nmap -sn 192.168.1.0/24
+
+- Stealth Scan: A discreet port scan. Default for root users.
+Command: nmap -sS target.com
+
+- Version Detection: Determines the version of services on open ports.
+Command: nmap -sV target.com
+
+- Aggressive Scan: Enables OS detection, version detection, script scanning, and traceroute.
+Command: nmap -A target.com
