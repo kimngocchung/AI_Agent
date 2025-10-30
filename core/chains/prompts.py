@@ -1,6 +1,60 @@
-# File: core/chains/prompts.py (Phiên bản hoàn chỉnh, ưu tiên RAG + linh hoạt)
+# File: core/chains/prompts.py (Hoàn chỉnh - Sửa lỗi SyntaxError lần cuối)
 
 from langchain_core.prompts import PromptTemplate
+
+# --- PROMPT CHO ROUTER THÔNG MINH ---
+router_template = """Phân loại yêu cầu sau đây của người dùng thành MỘT trong các loại sau:
+
+1.  **generate_full_plan**: Nếu người dùng yêu cầu một kế hoạch pentest tổng thể, chiến lược đánh giá bảo mật cho một hệ thống, ứng dụng, công nghệ hoặc quy trình phức tạp.
+2.  **specific_vulnerability_info**: Nếu người dùng hỏi về thông tin chi tiết, cách kiểm thử, cách khai thác, hoặc yêu cầu tạo Proof of Concept (PoC) cho MỘT loại lỗ hổng cụ thể (ví dụ: SQL Injection, XSS, SSRF), MỘT CVE cụ thể (ví dụ: CVE-2024-23119), hoặc MỘT kỹ thuật cụ thể.
+3.  **tool_usage**: Nếu người dùng hỏi về cách sử dụng, các lệnh, cờ (flags) của MỘT công cụ pentest cụ thể (ví dụ: Nmap, Burp Suite, sqlmap).
+
+Chỉ trả về TÊN của loại yêu cầu, không thêm bất kỳ văn bản nào khác.
+
+Ví dụ:
+Yêu cầu: "Làm sao để pentest một website thương mại điện tử?"
+Phân loại: generate_full_plan
+
+Yêu cầu: "Tạo PoC cho CVE-2024-23119"
+Phân loại: specific_vulnerability_info
+
+Yêu cầu: "Hướng dẫn kiểm thử lỗi SQL Injection union-based"
+Phân loại: specific_vulnerability_info
+
+Yêu cầu: "Các lệnh nmap cơ bản để quét mạng?"
+Phân loại: tool_usage
+
+Yêu cầu: {user_input}
+Phân loại:"""
+router_prompt = PromptTemplate.from_template(router_template)
+
+# --- PROMPT CHO LUỒNG TRẢ LỜI TRỰC TIẾP TỪ RAG ---
+rag_direct_template = """**Nhiệm vụ:** Dựa **chủ yếu** vào thông tin được cung cấp trong "Bối cảnh RAG" dưới đây, hãy trả lời câu hỏi của người dùng một cách trực tiếp và chi tiết.
+
+**ĐẶC BIỆT QUAN TRỌNG:** Nếu yêu cầu của người dùng là tạo Proof of Concept (PoC) hoặc khai thác lỗ hổng, hãy:
+1.  **Tự động học và tổng hợp** tất cả nội dung về payload, cách khai thác, các bước thực hiện từ **toàn bộ "Bối cảnh RAG"**.
+2.  **Tạo ra một mã PoC chất lượng cao nhất** (ưu tiên Python với thư viện `requests` hoặc lệnh `curl`) có khả năng khai thác thành công cao.
+3.  **Đảm bảo PoC rõ ràng, dễ hiểu, có tham số hóa** (ví dụ: `TARGET_URL`, `PAYLOAD_DATA`).
+4.  **Cung cấp giải thích chi tiết** về cách PoC hoạt động, các bước thực hiện, và kết quả mong đợi.
+5.  **Đánh giá khả năng thành công** của PoC dựa trên thông tin đã học.
+6.  **Bao gồm cảnh báo** về mục đích sử dụng hợp pháp.
+
+**Yêu cầu của người dùng:** {user_input}
+
+**Bối cảnh RAG (Thông tin truy xuất từ tài liệu):**
+{rag_context}
+
+**Yêu cầu đối với câu trả lời/PoC:**
+1.  Bám sát và ưu tiên thông tin từ **Bối cảnh RAG**.
+2.  Nếu tạo PoC, hãy tuân thủ các yêu cầu ĐẶC BIỆT QUAN TRỌNG ở trên.
+3.  Nếu trả lời câu hỏi, hãy trình bày rõ ràng, mạch lạc, có thể dùng Markdown.
+4.  Chỉ bổ sung kiến thức chung nếu Bối cảnh RAG thực sự thiếu sót hoặc không đủ để trả lời hoàn chỉnh.
+
+**Câu trả lời / Mã PoC (Dựa trên RAG):**
+"""
+rag_direct_prompt = PromptTemplate.from_template(rag_direct_template)
+
+# --- CÁC PROMPT CHO LUỒNG KẾ HOẠCH ĐẦY ĐỦ (FULL PLAN) ---
 
 # --- PROMPT CHO BƯỚC 1: THU THẬP THÔNG TIN ---
 recon_template = """
@@ -55,26 +109,39 @@ rag_enhanced_template = """
 """
 rag_enhanced_prompt = PromptTemplate.from_template(rag_enhanced_template)
 
-# --- PROMPT CHO BƯỚC CUỐI CÙNG: TẠO HƯỚNG DẪN KIỂM THỬ THỦ CÔNG (ƯU TIÊN RAG + BỔ SUNG) ---
-manual_testing_guide_template = """
-**Nhiệm vụ:** Với vai trò là một chuyên gia pentest bậc thầy, đang hướng dẫn cho một pentester junior, hãy tạo ra một bản hướng dẫn kiểm thử thủ công (manual testing guide) chi tiết, step-by-step.
-**QUAN TRỌNG:** Bản hướng dẫn này phải tập trung **chủ yếu** vào loại lỗ hổng được đề cập trong **Yêu cầu ban đầu của người dùng** VÀ **ưu tiên sử dụng các kỹ thuật, payload cụ thể từ Thông tin kỹ thuật tham khảo (RAG)**.
+# --- PROMPT CHO BƯỚC CUỐI CÙNG (FULL PLAN): TẠO POC TỪ RAG ---
+poc_generation_template = """
+**Nhiệm vụ:** Với vai trò là một nhà nghiên cứu bảo mật chuyên sâu, hãy phân tích kỹ lưỡng thông tin về CVE hoặc lỗ hổng được cung cấp từ RAG và các bước khai thác tiềm năng. Dựa trên sự hiểu biết đó, hãy **viết một đoạn mã Proof of Concept (PoC) đơn giản** (ví dụ: bằng Python sử dụng thư viện `requests`, hoặc một chuỗi lệnh `curl`) để chứng minh hoặc kiểm thử lỗ hổng này.
+
+**QUAN TRỌNG:** Tập trung vào việc mô phỏng lại các bước tấn công chính được mô tả trong tài liệu RAG hoặc kế hoạch khai thác.
 
 **Bối cảnh:**
 - **Yêu cầu ban đầu của người dùng:** {user_input}
-- **Phân tích lỗ hổng & kịch bản tấn công (Tham khảo):** {analysis_results}
+- **Phân tích lỗ hổng & Kịch bản (Tham khảo):** {analysis_results}
 - **Kế hoạch khai thác (Tham khảo):** {exploitation_results}
-- **Thông tin kỹ thuật tham khảo (Nguồn ưu tiên để tạo hướng dẫn):**
+- **Thông tin chi tiết về Lỗ hổng/CVE (Nguồn chính từ RAG):**
 {rag_context}
+- **Payloads gợi ý (Tham khảo):** {actionable_intelligence}
 
-**Yêu cầu đối với bản hướng dẫn:**
-1.  Xác định loại lỗ hổng chính từ **Yêu cầu ban đầu của người dùng**.
-2.  Cung cấp các bước thực hiện bằng tay chi tiết **cho loại lỗ hổng chính đó**, **ưu tiên** sử dụng các lệnh và payload được đề cập trong **Thông tin kỹ thuật tham khảo (RAG)**.
-3.  Nếu thông tin RAG không đủ chi tiết hoặc thiếu các bước cần thiết, **hãy bổ sung** bằng kiến thức chung về pentest để bản hướng dẫn được hoàn chỉnh và dễ thực hiện, nhưng vẫn phải bám sát vào RAG làm gốc.
-4.  Bao gồm các **lệnh terminal cụ thể** và **payload cần thiết** (ưu tiên lấy từ RAG).
-5.  Giải thích **kết quả mong đợi** sau mỗi lệnh.
-6.  Tập trung vào hướng dẫn thực hành cho lỗ hổng chính, lấy RAG làm nền tảng.
+**Yêu cầu đối với mã PoC:**
+1.  **Xác định rõ mục tiêu:** Code PoC nhắm vào lỗ hổng nào, dựa trên `rag_context` hoặc `user_input`.
+2.  **Ngôn ngữ:** Ưu tiên Python (dùng `requests`) hoặc `curl`.
+3.  **Rõ ràng & Đơn giản:** Code phải dễ đọc, dễ hiểu, chỉ bao gồm các bước cần thiết.
+4.  **Giải thích:** Cung cấp giải thích ngắn gọn về cách mã PoC hoạt động và kết quả mong đợi.
+5.  **Tham số hóa:** Sử dụng placeholders rõ ràng (ví dụ: `TARGET_URL`, `ATTACKER_IP`).
+6.  **CẢNH BÁO:** Bao gồm cảnh báo về mục đích sử dụng hợp pháp.
 
-**BẢN HƯỚNG DẪN KIỂM THỬ THỦ CÔNG CHI TIẾT (Tập trung vào: [Loại lỗ hổng từ Yêu cầu ban đầu], Ưu tiên RAG):**
-"""
-manual_testing_guide_prompt = PromptTemplate.from_template(manual_testing_guide_template)
+**MÃ PROOF OF CONCEPT (PoC) CHO [Tên Lỗ hổng/CVE]:**
+```python
+# (hoặc curl command)
+# ... code PoC ở đây ...
+Giải thích mã PoC:
+
+...
+
+Kết quả mong đợi:
+
+...
+
+⚠️ CẢNH BÁO: Mã này chỉ dành cho mục đích giáo dục và kiểm thử bảo mật hợp pháp. """ 
+poc_generation_prompt = PromptTemplate.from_template(poc_generation_template)

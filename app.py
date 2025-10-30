@@ -1,7 +1,15 @@
-# File: app.py (Cập nhật Tiêu đề Expander)
+# File: app.py (Giữ nguyên - Đã hỗ trợ hiển thị cả 2 loại kết quả)
 
 import streamlit as st
 from langchain_core.messages import AIMessage
+from langchain_core.documents import Document # Cần import Document
+import os
+from dotenv import load_dotenv
+
+# --- LOAD ENV FIRST ---
+load_dotenv()
+
+# --- IMPORT AGENT SAU KHI LOAD ENV ---
 from core.router import create_router
 
 # --- CẤU HÌNH TRANG WEB ---
@@ -14,7 +22,19 @@ st.set_page_config(
 # --- KHỞI TẠO AGENT ---
 @st.cache_resource
 def load_agent():
-    return create_router()
+    try:
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            st.error("Lỗi: Không tìm thấy GEMINI_API_KEY trong file .env!")
+            st.stop()
+        print("--- Đang khởi tạo Agent Router... ---")
+        agent = create_router()
+        print("--- Agent Router đã sẵn sàng! ---")
+        return agent
+    except Exception as e:
+        st.error(f"Lỗi khi khởi tạo Agent: {e}")
+        st.exception(e)
+        st.stop()
 
 agent_chain = load_agent()
 
@@ -36,42 +56,74 @@ if prompt := st.chat_input("Nhập yêu cầu của bạn ở đây..."):
 
     with st.chat_message("assistant"):
         with st.spinner("Cyber-Mentor đang phân tích..."):
-            response = agent_chain.invoke({"user_input": prompt})
+            try:
+                print(f"--- Đang gọi Agent với input: {prompt} ---")
+                # Input cho agent luôn là dict {"user_input": prompt}
+                response = agent_chain.invoke({"user_input": prompt})
+                print(f"--- Agent đã trả về response type: {type(response)} ---")
+            except Exception as e:
+                st.error(f"Đã xảy ra lỗi khi xử lý yêu cầu: {e}")
+                st.exception(e)
+                st.stop()
 
         final_content_for_history = ""
 
-        if isinstance(response, dict) and 'manual_guide' in response:
-            # <<< THAY ĐỔI TIÊU ĐỀ Ở ĐÂY >>>
-            with st.expander("📖 Bản hướng dẫn kiểm thử thủ công chi tiết", expanded=True):
-                steps = {
-                    "Bước 1: Thu thập thông tin": response.get("recon_results"),
-                    "Bước 2: Phân tích lỗ hổng": response.get("analysis_results"),
-                    "Bước 3: Lên kế hoạch khai thác": response.get("exploitation_results"),
-                    "Bước 4: Tạo Payload (từ RAG)": response.get("actionable_intelligence"),
-                    # Bước cuối cùng giờ là bản hướng dẫn chính
-                    "Bước 5: Hướng dẫn Chi tiết": response.get("manual_guide"),
+        # --- XỬ LÝ KẾT QUẢ TỪ full_plan_chain (dictionary) ---
+        if isinstance(response, dict) and ('actionable_intelligence' in response or 'manual_guide' in response):
+            final_step_key = 'actionable_intelligence' if 'actionable_intelligence' in response else 'manual_guide'
+            final_step_title = "Payload và Hướng dẫn Chi tiết" if final_step_key == 'actionable_intelligence' else "Hướng dẫn Kiểm thử Thủ công Chi tiết"
+            expander_title = f"🔎 Xem Chuỗi tư duy (Kết quả: {final_step_title})"
+
+            with st.expander(expander_title, expanded=True):
+                # Hiển thị các bước TRỪ rag_context docs (vì đã được format)
+                steps_to_display = {
+                    "Bước 1: Thu thập thông tin": "recon_results",
+                    "Bước 2: Phân tích lỗ hổng": "analysis_results",
+                    "Bước 3: Lên kế hoạch khai thác": "exploitation_results",
+                    "Bước 4: Tạo Payload (từ RAG)": "actionable_intelligence",
+                    f"Bước 5: {final_step_title}": final_step_key,
                 }
-                last_step_key = list(steps.keys())[-1]
+                last_step_title = list(steps_to_display.keys())[-1]
 
-                for title, content in steps.items():
-                    if content and isinstance(content, AIMessage):
-                        st.subheader(f"📝 {title}") # Thay đổi icon nếu muốn
-                        st.markdown(content.content)
-                        st.divider()
-                        if title == last_step_key:
-                            final_content_for_history = content.content
-            
-            # Phần hiển thị riêng đã bị xóa
+                # Hiển thị RAG Context (đã được format thành string trong chain)
+                rag_context_str = response.get("rag_context")
+                if isinstance(rag_context_str, str) and rag_context_str != "Không tìm thấy thông tin liên quan trong cơ sở tri thức.":
+                     st.subheader("📚 Thông tin tham khảo từ RAG:")
+                     with st.container(border=True):
+                          st.markdown(rag_context_str)
+                     st.divider()
 
-            if final_content_for_history:
-                 st.session_state.messages.append({"role": "assistant", "content": final_content_for_history})
+                # Hiển thị các bước còn lại
+                for display_title, response_key in steps_to_display.items():
+                    content = response.get(response_key)
+                    content_text = ""
+                    if isinstance(content, AIMessage):
+                        content_text = content.content
+                    elif isinstance(content, str):
+                        content_text = content
+                    elif content is not None:
+                        content_text = str(content)
 
-        elif isinstance(response, AIMessage):
-            st.markdown(response.content)
-            final_content_for_history = response.content
-            st.session_state.messages.append({"role": "assistant", "content": final_content_for_history})
-        
+                    if content_text:
+                        st.subheader(f"📝 {display_title}")
+                        st.markdown(content_text)
+                        if display_title != last_step_title:
+                            st.divider()
+                        if display_title == last_step_title:
+                            final_content_for_history = content_text
+
+        # --- XỬ LÝ KẾT QUẢ TỪ RAG TRỰC TIẾP (string) ---
+        elif isinstance(response, str):
+            st.markdown("### 🤖 Phản hồi (Dựa trên RAG):")
+            st.markdown(response)
+            final_content_for_history = response
+
+        # --- XỬ LÝ CÁC TRƯỜNG HỢP KHÁC / LỖI ---
         else:
+            st.markdown("### ⚠️ Phản hồi không xác định:")
             final_content_for_history = str(response)
-            st.markdown(final_content_for_history)
-            st.session_state.messages.append({"role": "assistant", "content": final_content_for_history})
+            st.markdown(f"```\n{final_content_for_history}\n```")
+
+        # Lưu vào history
+        if final_content_for_history:
+             st.session_state.messages.append({"role": "assistant", "content": final_content_for_history})
