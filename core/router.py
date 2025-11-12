@@ -1,4 +1,4 @@
-# File: core/router.py (Phiên bản Router Thông minh - Sửa lỗi Branch)
+# File: core/router.py (CẬP NHẬT HOÀN CHỈNH)
 
 import os
 from dotenv import load_dotenv
@@ -8,10 +8,13 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.documents import Document
 
-# Import các chain con và retriever đã khởi tạo
-from .chains.full_plan_chain import full_plan_chain
+# Import các chain con và retriever
+from .chains.full_plan_chain import full_plan_chain    # LUỒNG 2 (Lên kế hoạch)
 from .chains.prompts import router_prompt, rag_direct_prompt
-from .chains.retriever import retriever # Import retriever đã khởi tạo sẵn
+from .chains.retriever import retriever 
+
+# <<< IMPORT LUỒNG MỚI (LUỒNG 3) >>>
+from .agents.executor import agent_executor           # LUỒNG 3 (Thực thi)
 
 load_dotenv()
 api_key = os.getenv("GEMINI_API_KEY")
@@ -20,18 +23,18 @@ if not api_key:
 
 # LLM cho router phân loại (Flash)
 router_llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash",
-                                 google_api_key=api_key)
+                                  google_api_key=api_key)
 
 # LLM cho việc tạo câu trả lời cuối cùng (Pro)
 answer_llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash",
-                           google_api_key=api_key,
-                           temperature=0.3)
+                                  google_api_key=api_key,
+                                  temperature=0.3)
 
 # Hàm helper để định dạng context từ retriever
 def format_docs(docs: list[Document]) -> str:
     if not isinstance(docs, list) or not docs:
         return "Không tìm thấy thông tin liên quan trong cơ sở tri thức."
-    top_k_docs = docs[:3]
+    top_k_docs = docs[:3] 
     return "\n\n---\n\n".join(
         f"Nguồn: {doc.metadata.get('source', 'N/A')}\n\n{doc.page_content}"
         for doc in top_k_docs
@@ -41,7 +44,7 @@ def format_docs(docs: list[Document]) -> str:
 def prepare_subchain_input(input_dict: dict) -> dict:
     return {"user_input": input_dict["user_input"]}
 
-# Chain RAG Trực tiếp (định nghĩa ở đây để dùng trong branch)
+# Chain RAG Trực tiếp (LUỒNG 1)
 direct_rag_answer_chain = (
     # Nhận input {"user_input": ..., "rag_context": ...}
     rag_direct_prompt
@@ -51,8 +54,10 @@ direct_rag_answer_chain = (
 
 def create_router():
     """
-    Tạo Router Chain thông minh: Phân loại -> Kiểm tra RAG -> Chọn Luồng phù hợp.
+    Tạo Router Chain thông minh: 
+    Phân loại -> Kiểm tra RAG -> Chọn 1 trong 3 Luồng.
     """
+    
     # 1. Chain phân loại ý định
     # Input: {"user_input": "..."} -> Output: string (topic)
     classifier_chain = (lambda x: x["user_input"]) | router_prompt | router_llm | StrOutputParser()
@@ -61,10 +66,18 @@ def create_router():
     # Input: {"user_input": "..."} -> Output: list[Document]
     early_rag_retrieval_chain = (lambda x: x["user_input"]) | retriever
 
-    # 3. Logic Phân nhánh Chính (Sửa lỗi ở đây)
+    # 3. Logic Phân nhánh 3 Luồng (CẬP NHẬT)
     # Input cho branch là dict: {"topic": ..., "user_input": ..., "rag_context_docs": ...}
     branch = RunnableBranch(
-        # Điều kiện 1: Intent cụ thể VÀ có context RAG?
+        
+        # ĐIỀU KIỆN 1: Nếu là yêu cầu THỰC THI (LUỒNG 3)
+        # Ưu tiên cao nhất
+        (lambda x: "execute_pentest_tool" in x["topic"],
+            # Chạy Agent Executor
+            RunnableLambda(prepare_subchain_input) | agent_executor
+        ),
+        
+        # ĐIỀU KIỆN 2: Nếu là câu hỏi cụ thể VÀ có RAG (LUỒNG 1)
         (lambda x: ("specific_vulnerability_info" in x["topic"] or "tool_usage" in x["topic"]) and x.get("rag_context_docs"),
             # Nếu ĐÚNG -> Định dạng context và chạy chain RAG TRỰC TIẾP
             RunnableLambda(
@@ -74,7 +87,9 @@ def create_router():
                 }
             ) | direct_rag_answer_chain
         ),
-        # Fallback: Nếu là full plan HOẶC không tìm thấy RAG docs -> chạy full_plan_chain
+        
+        # FALLBACK: (LUỒNG 2 - Lên kế hoạch)
+        # Nếu là 'generate_full_plan' HOẶC các luồng kia không khớp
         RunnableLambda(prepare_subchain_input) | full_plan_chain # full_plan_chain tự query RAG lại
     )
 

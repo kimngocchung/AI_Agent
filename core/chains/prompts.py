@@ -1,13 +1,14 @@
-# File: core/chains/prompts.py (Hoàn chỉnh - Sửa lỗi SyntaxError lần cuối)
+# File: core/chains/prompts.py (CẬP NHẬT HOÀN CHỈNH)
 
 from langchain_core.prompts import PromptTemplate
 
-# --- PROMPT CHO ROUTER THÔNG MINH ---
+# --- PROMPT CHO ROUTER THÔNG MINH (CẬP NHẬT) ---
 router_template = """Phân loại yêu cầu sau đây của người dùng thành MỘT trong các loại sau:
 
 1.  **generate_full_plan**: Nếu người dùng yêu cầu một kế hoạch pentest tổng thể, chiến lược đánh giá bảo mật cho một hệ thống, ứng dụng, công nghệ hoặc quy trình phức tạp.
-2.  **specific_vulnerability_info**: Nếu người dùng hỏi về thông tin chi tiết, cách kiểm thử, cách khai thác, hoặc yêu cầu tạo Proof of Concept (PoC) cho MỘT loại lỗ hổng cụ thể (ví dụ: SQL Injection, XSS, SSRF), MỘT CVE cụ thể (ví dụ: CVE-2024-23119), hoặc MỘT kỹ thuật cụ thể.
-3.  **tool_usage**: Nếu người dùng hỏi về cách sử dụng, các lệnh, cờ (flags) của MỘT công cụ pentest cụ thể (ví dụ: Nmap, Burp Suite, sqlmap).
+2.  **execute_pentest_tool**: Nếu người dùng yêu cầu **thực thi** (run, scan, execute, check, chạy, quét) một công cụ pentest cụ thể (Nmap, SQLMap, Dirsearch...) trên một mục tiêu cụ thể.
+3.  **specific_vulnerability_info**: Nếu người dùng hỏi về thông tin chi tiết, cách kiểm thử, cách khai thác, hoặc yêu cầu tạo Proof of Concept (PoC) cho MỘT loại lỗ hổng cụ thể (ví dụ: SQL Injection, XSS), MỘT CVE cụ thể.
+4.  **tool_usage**: Nếu người dùng hỏi về cách sử dụng, các lệnh, cờ (flags) của MỘT công cụ pentest cụ thể (ví dụ: Nmap, Burp Suite, sqlmap) mà **không có mục tiêu cụ thể**.
 
 Chỉ trả về TÊN của loại yêu cầu, không thêm bất kỳ văn bản nào khác.
 
@@ -15,8 +16,11 @@ Ví dụ:
 Yêu cầu: "Làm sao để pentest một website thương mại điện tử?"
 Phân loại: generate_full_plan
 
-Yêu cầu: "Tạo PoC cho CVE-2024-23119"
-Phân loại: specific_vulnerability_info
+Yêu cầu: "Chạy nmap quét -sV trang scanme.nmap.org"
+Phân loại: execute_pentest_tool
+
+Yêu cầu: "Quét sqlmap trên 'http://test.com/login.php?id=1' xem sao"
+Phân loại: execute_pentest_tool
 
 Yêu cầu: "Hướng dẫn kiểm thử lỗi SQL Injection union-based"
 Phân loại: specific_vulnerability_info
@@ -28,7 +32,63 @@ Yêu cầu: {user_input}
 Phân loại:"""
 router_prompt = PromptTemplate.from_template(router_template)
 
-# --- PROMPT CHO LUỒNG TRẢ LỜI TRỰC TIẾP TỪ RAG ---
+
+# File: core/chains/prompts.py (Dán đè phần này)
+
+# File: core/chains/prompts.py
+# (Hãy DÁN ĐÈ lên agent_system_prompt_template cũ)
+
+# --- PROMPT MỚI: CHO AGENT EXECUTOR (LUỒNG 3) [PHIÊN BẢN CO-PILOT / HITL] ---
+agent_system_prompt_template = """
+Bạn là "Cyber-Mentor", một AI Agent CỐ VẤN Penetration Testing.
+Nhiệm vụ của bạn là:
+1.  Thực thi MỘT LỆNH (tool) mà người dùng yêu cầu.
+2.  Nhận kết quả (output) từ tool.
+3.  **Phân tích** kết quả đó.
+4.  **Đề xuất** MỘT LỆNH tiếp theo (next command) hợp lý dựa trên phân tích.
+
+QUY TRÌNH SUY LUẬN (React -> Propose):
+
+1.  **SUY NGHĨ (Thought):**
+    * Phân tích yêu cầu của người dùng (ví dụ: "Chạy Nmap").
+    * Tool nào? Tham số nào?
+2.  **HÀNH ĐỘNG (Action):**
+    * Gọi MỘT tool duy nhất (`run_nmap_scan`, `run_sqlmap_scan`).
+3.  **QUAN SÁT (Observation):**
+    * Bạn sẽ nhận được kết quả (output) từ tool.
+4.  **SUY NGHĨ (Thought) & KẾT THÚC (Final Answer):**
+    * BÂY GIỜ, hãy đóng vai trò là CỐ VẤN.
+    * Phân tích kết quả QUAN SÁT (Ví dụ: "Tôi thấy OpenSSH 6.6.1p1...").
+    * Dựa trên phân tích, suy nghĩ về bước tiếp theo hợp lý nhất.
+    * **Bắt buộc:** Trả lời cho người dùng bằng hai phần rõ rệt:
+        * Phần 1: Trình bày kết quả và **Phân tích của tôi**.
+        * Phần 2: Đưa ra MỘT lệnh đề xuất, bắt đầu bằng từ khóa `ĐỀ XUẤT:`
+
+VÍ DỤ LUỒNG SUY NGHĨ & KẾT THÚC:
+(AI nhận được kết quả Nmap: "... 22/tcp open ssh OpenSSH 6.6.1p1 ...")
+SUY NGHĨ:
+Tôi đã có kết quả Nmap. Dịch vụ OpenSSH 6.6.1p1 đã cũ và có thể dính lỗi CVE.
+Tôi nên đề xuất người dùng chạy một kịch bản quét lỗ hổng Nmap (NSE) chi tiết hơn vào cổng 22.
+Lệnh đề xuất sẽ là `nmap --script vuln -p 22 scanme.nmap.org`.
+KẾT THÚC:
+(AI trả lời cho người dùng):
+Kết quả quét Nmap của bạn đã hoàn tất.
+    
+**Phân tích của tôi:**
+Tôi nhận thấy cổng 22 đang chạy `OpenSSH 6.6.1p1`. Đây là một phiên bản cũ và có thể chứa các lỗ hổng đã biết, ví dụ như CVE-2018-15473 (Username Enumeration).
+    
+**Lệnh đề xuất tiếp theo:**
+ĐỀ XUẤT: nmap --script vuln -p 22 scanme.nmap.org
+
+HÃY BẮT ĐẦU!
+
+Yêu cầu của người dùng: {input}
+
+{agent_scratchpad}
+"""
+
+
+# --- PROMPT CHO LUỒNG TRẢ LỜI TRỰC TIẾP TỪ RAG (LUỒNG 1) ---
 rag_direct_template = """**Nhiệm vụ:** Dựa **chủ yếu** vào thông tin được cung cấp trong "Bối cảnh RAG" dưới đây, hãy trả lời câu hỏi của người dùng một cách trực tiếp và chi tiết.
 
 **ĐẶC BIỆT QUAN TRỌNG:** Nếu yêu cầu của người dùng là tạo Proof of Concept (PoC) hoặc khai thác lỗ hổng, hãy:
@@ -54,7 +114,7 @@ rag_direct_template = """**Nhiệm vụ:** Dựa **chủ yếu** vào thông tin
 """
 rag_direct_prompt = PromptTemplate.from_template(rag_direct_template)
 
-# --- CÁC PROMPT CHO LUỒNG KẾ HOẠCH ĐẦY ĐỦ (FULL PLAN) ---
+# --- CÁC PROMPT CHO LUỒNG KẾ HOẠCH ĐẦY ĐỦ (FULL PLAN - LUỒNG 2) ---
 
 # --- PROMPT CHO BƯỚC 1: THU THẬP THÔNG TIN ---
 recon_template = """
