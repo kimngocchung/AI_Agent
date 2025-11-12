@@ -1,7 +1,8 @@
-# File: core/tools/sqlmap_tool.py
+# File: core/tools/sqlmap_tool.py (Phiên bản "Làm mát" API)
 
 import os
 import requests
+import time  # <<< 1. THÊM IMPORT NÀY
 from langchain_core.tools import tool
 from dotenv import load_dotenv
 from typing import List, Optional
@@ -31,7 +32,7 @@ def run_sqlmap_scan(url: str, params: Optional[List[str]] = None) -> str:
     """
     
     print(f"--- [Tool: SQLMap] Nhận lệnh quét trên URL: {url} ---")
-    print(f"--- [Tool: SQLMap] Đang gửi yêu cầu đến 'Tay' tại: {KALI_LISTENER_URL} ---")
+    print(f"--- [Tool: SQLMap] Đang gửi yêu cầu đến 'Pentest Tools' tại: {KALI_LISTENER_URL} ---")
     
     # Xây dựng các tham số (params)
     # Bắt đầu với lệnh cơ bản
@@ -61,18 +62,23 @@ def run_sqlmap_scan(url: str, params: Optional[List[str]] = None) -> str:
         data = response.json()
         
         if data.get("success"):
-            print("--- [Tool: SQLMap] 'Tay' đã thực thi thành công. ---")
+            print("--- [Tool: SQLMap] 'Pentest Tools' đã thực thi thành công. ---")
+            
+            # <<< 2. THÊM DÒNG NÀY ĐỂ "LÀM MÁT" API TRƯỚC KHI TRẢ VỀ >>>
+            print("--- [Tool: SQLMap] Đang chờ 4 giây để tránh lỗi 429... ---")
+            time.sleep(4) 
+            
             return f"Kết quả quét SQLMap từ Kali:\n{data.get('output')}"
         else:
             # Lỗi do chính tool SQLMap báo về
-            print(f"--- [Tool: SQLMap] 'Tay' báo lỗi khi chạy tool: {data.get('error_output')} ---")
+            print(f"--- [Tool: SQLMap] 'Pentest Tools' báo lỗi khi chạy tool: {data.get('error_output')} ---")
             return f"Máy Kali báo lỗi khi chạy SQLMap: {data.get('error_output')}\nKết quả (nếu có): {data.get('output')}"
 
     except requests.exceptions.Timeout:
         print("--- [Tool: SQLMap] Lỗi: Yêu cầu bị Timeout ---")
         return f"Lỗi: Yêu cầu đến Kali Listener bị timeout (quá 610 giây)."
     except requests.exceptions.ConnectionError:
-        print("--- [Tool: SQLMap] Lỗi: Không kết nối được 'Tay' ---")
+        print("--- [Tool: SQLMap] Lỗi: Không kết nối được 'Kali linux' ---")
         return f"Lỗi kết nối: Không thể kết nối đến Kali Listener tại {api_endpoint}. Hãy kiểm tra IP trong .env và đảm bảo Listener (kali_listener.py) đang chạy."
     except requests.exceptions.RequestException as e:
         # Các lỗi HTTP khác

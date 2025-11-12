@@ -1,8 +1,8 @@
-# File: app.py (CẬP NHẬT HOÀN CHỈNH)
+# File: app.py (Phiên bản Nâng cấp "Human-in-the-Loop" - ĐẦY ĐỦ)
 
 import streamlit as st
 from langchain_core.messages import AIMessage
-from langchain_core.documents import Document # Cần import Document
+from langchain_core.documents import Document 
 import os
 from dotenv import load_dotenv
 
@@ -45,28 +45,66 @@ def load_agent():
 
 agent_chain = load_agent()
 
-# --- GIAO DIỆN CHÍNH ---
-st.title("🚀 Cyber-Mentor AI Pentesting Agent")
-st.caption("Trợ lý AI hỗ trợ Lên kế hoạch (Luồng 2), Hỏi đáp RAG (Luồng 1), và Thực thi Tool (Luồng 3)")
-
+# --- QUẢN LÝ SESSION STATE (BỘ NHỚ CỦA APP) ---
+# 1. 'messages' lưu toàn bộ lịch sử chat
 if "messages" not in st.session_state:
     st.session_state.messages = []
+# 2. 'recommendation' lưu đề xuất tiếp theo của AI
+if "recommendation" not in st.session_state:
+    st.session_state.recommendation = None
 
+# --- GIAO DIỆN CHÍNH ---
+st.title("🚀 Cyber-Mentor AI Pentesting Agent")
+st.caption("AI Co-Pilot: Phân tích, Thực thi và Đề xuất (Human-in-the-Loop)")
+
+# --- 1. HIỂN THỊ LỊCH SỬ CHAT (TỪ BỘ NHỚ) ---
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-if prompt := st.chat_input("Nhập yêu cầu (ví dụ: 'Quét Nmap trang scanme.nmap.org')..."):
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.markdown(prompt)
+# --- 2. LOGIC XỬ LÝ INPUT (QUAN TRỌNG NHẤT) ---
 
+# Biến 'prompt' sẽ lưu lệnh cần chạy.
+# Nó có thể đến từ 2 nguồn: Nút "Chấp nhận" hoặc Ô "Chat Input"
+prompt_to_run = None
+run_from_button = False
+
+# ƯU TIÊN 1: Kiểm tra xem có Nút "Chấp nhận" không
+if st.session_state.recommendation:
+    # Hiển thị thông báo đề xuất
+    st.info(f"🤖 **Đề xuất tiếp theo:**\n```bash\n{st.session_state.recommendation}\n```")
+    
+    # Chia cột cho 2 nút
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("✅ Chấp nhận Đề xuất", use_container_width=True, type="primary"):
+            prompt_to_run = st.session_state.recommendation
+            st.session_state.recommendation = None # Xóa đề xuất sau khi chấp nhận
+            run_from_button = True
+    with col2:
+        if st.button("❌ Hủy bỏ", use_container_width=True):
+            st.session_state.recommendation = None
+            st.rerun() # Chạy lại script để xóa nút
+
+# ƯU TIÊN 2: Nếu không bấm nút, lấy lệnh từ ô chat
+if not run_from_button:
+    if new_prompt_from_chat := st.chat_input("Nhập yêu cầu (ví dụ: 'Quét Nmap trang scanme.nmap.org')..."):
+        prompt_to_run = new_prompt_from_chat
+        st.session_state.recommendation = None # Xóa đề xuất cũ (nếu có) khi gõ lệnh mới
+
+# --- 3. BLOCK CHẠY AGENT (CHỈ CHẠY KHI CÓ LỆNH MỚI) ---
+if prompt_to_run:
+    # Thêm prompt của user vào history và hiển thị
+    st.session_state.messages.append({"role": "user", "content": prompt_to_run})
+    with st.chat_message("user"):
+        st.markdown(prompt_to_run)
+
+    # Chạy Agent và hiển thị kết quả
     with st.chat_message("assistant"):
         with st.spinner("Cyber-Mentor đang phân tích..."):
             try:
-                print(f"--- Đang gọi Agent 3 Luồng với input: {prompt} ---")
-                # Input cho agent luôn là dict {"user_input": prompt}
-                response = agent_chain.invoke({"user_input": prompt})
+                print(f"--- Đang gọi Agent 3 Luồng với input: {prompt_to_run} ---")
+                response = agent_chain.invoke({"user_input": prompt_to_run})
                 print(f"--- Agent đã trả về response type: {type(response)} ---")
                 if isinstance(response, dict):
                     print(f"--- Keys: {response.keys()} ---")
@@ -75,10 +113,11 @@ if prompt := st.chat_input("Nhập yêu cầu (ví dụ: 'Quét Nmap trang scanm
                 st.exception(e)
                 st.stop()
 
-        final_content_for_history = ""
+        # --- Xử lý và Phân tích Response ---
+        full_response_text = ""
+        new_recommendation = None
 
         # --- XỬ LÝ KẾT QUẢ TỪ LUỒNG 2 (full_plan_chain) ---
-        # Output là dict chứa 'actionable_intelligence'
         if isinstance(response, dict) and 'actionable_intelligence' in response:
             st.markdown("### 🤖 Phản hồi (Luồng 2: Lên Kế hoạch)")
             
@@ -121,39 +160,62 @@ if prompt := st.chat_input("Nhập yêu cầu (ví dụ: 'Quét Nmap trang scanm
                             st.divider()
                         else:
                             # Đây là nội dung cuối cùng để lưu vào history
-                            final_content_for_history = content_text
+                            full_response_text = content_text
+
 
         # --- XỬ LÝ KẾT QUẢ TỪ LUỒNG 3 (agent_executor) ---
-        # Output là dict chứa 'output'
         elif isinstance(response, dict) and 'output' in response:
             st.markdown("### 🤖 Phản hồi (Luồng 3: Thực thi Tool)")
-            final_content = response['output']
-            
-            # Định dạng đặc biệt cho kết quả tool
-            if "Kết quả quét Nmap" in final_content or "Kết quả quét SQLMap" in final_content:
-                st.markdown("**Đã thực thi tool trên Kali Listener, đây là kết quả:**")
-                # Hiển thị kết quả tool trong code block
-                st.code(final_content, language="bash") 
-                final_content_for_history = f"```bash\n{final_content}\n```"
-            else:
-                # Nếu là câu trả lời tổng hợp từ Agent
-                st.markdown(final_content) 
-                final_content_for_history = final_content
-            
+            full_response_text = response['output']
 
         # --- XỬ LÝ KẾT QUẢ TỪ LUỒNG 1 (RAG Trực tiếp) ---
-        # Output là string
         elif isinstance(response, str):
             st.markdown("### 🤖 Phản hồi (Luồng 1: RAG Hỏi đáp):")
-            st.markdown(response)
-            final_content_for_history = response
+            full_response_text = response
 
         # --- XỬ LÝ CÁC TRƯỜNG HỢP KHÁC / LỖI ---
         else:
             st.markdown("### ⚠️ Phản hồi không xác định:")
-            final_content_for_history = str(response)
-            st.markdown(f"```\n{final_content_for_history}\n```")
+            full_response_text = str(response)
 
-        # Lưu vào history
-        if final_content_for_history:
-            st.session_state.messages.append({"role": "assistant", "content": final_content_for_history})
+        
+        # --- LOGIC PHÂN TÍCH ĐỀ XUẤT (MỚI) ---
+        display_text = full_response_text # Mặc định hiển thị toàn bộ
+        
+        # Kiểm tra xem AI có trả về ĐỀ XUẤT không
+        if "ĐỀ XUẤT:" in full_response_text:
+            try:
+                # Tách response thành 2 phần: Phân tích và Đề xuất
+                parts = full_response_text.split("ĐỀ XUẤT:", 1)
+                display_text = parts[0] # Phần phân tích (trước chữ ĐỀ XUẤT)
+                
+                # Lấy lệnh đề xuất và làm sạch (xóa backtick, whitespace)
+                recommend_cmd = parts[1].strip().strip('`').strip()
+                
+                if recommend_cmd: # Đảm bảo không rỗng
+                    new_recommendation = recommend_cmd
+            except Exception as e:
+                print(f"Lỗi parse đề xuất: {e}")
+                # Nếu lỗi, cứ hiển thị text gốc
+                display_text = full_response_text
+
+        # 4. HIỂN THỊ NỘI DUNG (Phần Phân tích)
+        # (Lưu ý: Logic hiển thị tool output trong code block đã được gộp vào đây)
+        if "Kết quả quét Nmap" in display_text or "Kết quả quét SQLMap" in display_text:
+             st.markdown("**Kết quả thực thi:**")
+             st.code(display_text, language="bash")
+        else:
+             st.markdown(display_text) # Hiển thị phân tích hoặc RAG
+        
+        # 5. LƯU VÀO HISTORY (Chỉ lưu phần đã hiển thị)
+        st.session_state.messages.append({"role": "assistant", "content": display_text})
+
+        # 6. LƯU ĐỀ XUẤT VÀO STATE ĐỂ HIỂN THỊ NÚT
+        if new_recommendation:
+            st.session_state.recommendation = new_recommendation
+            # Tự động chạy lại script để hiển thị nút "Accept" ngay lập tức
+            st.rerun() 
+        
+        # Nếu chạy từ nút bấm và không có đề xuất mới -> rerun để dọn dẹp
+        elif run_from_button:
+            st.rerun()
