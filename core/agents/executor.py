@@ -1,4 +1,4 @@
-# File: core/agents/executor.py (FILE MỚI)
+# File: core/agents/executor.py (Đã cập nhật Burp Tool)
 
 import os
 from dotenv import load_dotenv
@@ -13,7 +13,7 @@ from ..chains.prompts import agent_system_prompt_template
 # <<< BƯỚC QUAN TRỌNG: IMPORT CÁC TOOL "NÃO-TAY" CỦA BẠN >>>
 from ..tools.nmap_tool import run_nmap_scan
 from ..tools.sqlmap_tool import run_sqlmap_scan
-# from ..tools.dirsearch_tool import run_dirsearch_scan # (Khi bạn tạo xong)
+from ..tools.burpsuite_tool import get_burp_request_by_index
 
 load_dotenv()
 api_key = os.getenv("GEMINI_API_KEY")
@@ -34,7 +34,7 @@ def create_agent_executor():
     tools = [
         run_nmap_scan,
         run_sqlmap_scan,
-        # run_dirsearch_scan,
+        get_burp_request_by_index, # <<< 2. THÊM TOOL MỚI VÀO DANH SÁCH
     ]
     
     # 2. Prompt cho Agent
@@ -47,7 +47,7 @@ def create_agent_executor():
     
     # 4. Tạo Agent Executor
     # Đây là "bộ máy" chạy vòng lặp: Suy nghĩ -> Gọi Tool -> Nhận kết quả -> Suy nghĩ...
-    agent_executor = AgentExecutor(
+    agent_executor_obj = AgentExecutor( # Đổi tên biến để không bị trùng
         agent=agent, 
         tools=tools, 
         verbose=True, # Đặt là True để xem log suy nghĩ của AI
@@ -64,7 +64,7 @@ def create_agent_executor():
            input=lambda x: x["user_input"],
            chat_history=lambda x: [] # Giữ mảng rỗng (stateless)
         )
-        | agent_executor
+        | agent_executor_obj # Dùng biến đã đổi tên
     )
     
     print("--- [Agent Executor] Đã khởi tạo Luồng 3 (Thực thi Tool) ---")
