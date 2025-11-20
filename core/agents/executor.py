@@ -13,7 +13,7 @@ from ..chains.prompts import agent_system_prompt_template
 # <<< BƯỚC QUAN TRỌNG: IMPORT CÁC TOOL "NÃO-TAY" CỦA BẠN >>>
 from ..tools.nmap_tool import run_nmap_scan
 from ..tools.sqlmap_tool import run_sqlmap_scan
-from ..tools.burpsuite_tool import get_burp_request_by_index
+
 
 load_dotenv()
 api_key = os.getenv("GEMINI_API_KEY")
@@ -34,7 +34,6 @@ def create_agent_executor():
     tools = [
         run_nmap_scan,
         run_sqlmap_scan,
-        get_burp_request_by_index, # <<< 2. THÊM TOOL MỚI VÀO DANH SÁCH
     ]
     
     # 2. Prompt cho Agent
@@ -60,9 +59,9 @@ def create_agent_executor():
     agent_executor_chain = (
         RunnablePassthrough.assign(
            # AgentExecutor cần input là "input" và "chat_history"
-           # Chúng ta chỉ dùng "input" cho đơn giản
+           # Chúng ta sẽ lấy chat_history từ input
            input=lambda x: x["user_input"],
-           chat_history=lambda x: [] # Giữ mảng rỗng (stateless)
+           chat_history=lambda x: x.get("chat_history", []) # Lấy history, nếu không có thì dùng mảng rỗng
         )
         | agent_executor_obj # Dùng biến đã đổi tên
     )
