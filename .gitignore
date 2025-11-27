@@ -1,5 +1,6 @@
 .env
 my_faiss_index/
+chat_history.json
 
 # Snyk Security Extension - AI Rules (auto-generated)
 .github/instructions/snyk_rules.instructions.md

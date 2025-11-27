@@ -1,0 +1,49 @@
+services:
+  # Kali Linux Container với Pentest Tools
+  kali-listener:
+    build:
+      context: .
+      dockerfile: Dockerfile.kali
+    container_name: cyber-mentor-kali
+    ports:
+      - "5000:5000"
+    networks:
+      - cyber-mentor-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Streamlit App Container
+  streamlit-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cyber-mentor-app
+    ports:
+      - "8501:8501"
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - KALI_LISTENER_URL=http://kali-listener:5000
+    volumes:
+      - ./chat_history.json:/app/data/chat_history.json
+      - ./my_faiss_index:/app/my_faiss_index
+    networks:
+      - cyber-mentor-network
+    depends_on:
+      kali-listener:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+networks:
+  cyber-mentor-network:
+    driver: bridge

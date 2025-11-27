@@ -11,6 +11,11 @@ ALLOWED_TOOLS = {
     "dirsearch": "/usr/bin/dirsearch" # Cần kiểm tra đường dẫn
 }
 
+@app.route("/", methods=["GET"])
+def health_check():
+    """Health check endpoint for Docker"""
+    return jsonify({"status": "healthy", "service": "kali-listener"}), 200
+
 @app.route("/execute", methods=["POST"])
 def execute_command():
     data = request.json

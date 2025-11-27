@@ -1,4 +1,4 @@
-# File: app.py (Phiên bản Nâng cấp "Lưu Chat & New Chat")
+# File: app.py (Phiên bản Nâng cấp "Lưu Chat & New Chat & Persistent Storage")
 
 import streamlit as st
 from langchain_core.messages import AIMessage
@@ -6,6 +6,7 @@ from langchain_core.documents import Document
 import os
 from dotenv import load_dotenv
 import time
+import json
 
 # --- LOAD ENV FIRST ---
 load_dotenv()
@@ -47,6 +48,36 @@ def load_agent():
 
 agent_chain = load_agent()
 
+# --- ĐƯỜNG DẪN FILE LƯU TRỮ ---
+# Hỗ trợ cả Docker và local development
+CHAT_HISTORY_DIR = os.getenv("CHAT_HISTORY_DIR", ".")
+CHAT_HISTORY_FILE = os.path.join(CHAT_HISTORY_DIR, "chat_history.json")
+
+# --- HÀM LƯU/TẢI LỊCH SỬ CHAT ---
+def save_conversations():
+    """Lưu tất cả cuộc trò chuyện vào file JSON."""
+    try:
+        with open(CHAT_HISTORY_FILE, 'w', encoding='utf-8') as f:
+            json.dump({
+                'conversations': st.session_state.conversations,
+                'active_chat_id': st.session_state.active_chat_id
+            }, f, ensure_ascii=False, indent=2)
+        print(f"--- Đã lưu {len(st.session_state.conversations)} cuộc trò chuyện vào {CHAT_HISTORY_FILE} ---")
+    except Exception as e:
+        print(f"--- Lỗi khi lưu lịch sử chat: {e} ---")
+
+def load_conversations():
+    """Tải lịch sử cuộc trò chuyện từ file JSON."""
+    try:
+        if os.path.exists(CHAT_HISTORY_FILE):
+            with open(CHAT_HISTORY_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                print(f"--- Đã tải {len(data.get('conversations', {}))} cuộc trò chuyện từ {CHAT_HISTORY_FILE} ---")
+                return data.get('conversations', {}), data.get('active_chat_id')
+    except Exception as e:
+        print(f"--- Lỗi khi tải lịch sử chat: {e} ---")
+    return {}, None
+
 # --- QUẢN LÝ SESSION STATE (NÂNG CẤP) ---
 def get_current_chat_history():
     """Lấy message list của chat đang active."""
@@ -62,7 +93,18 @@ def set_current_recommendation(value):
 
 # Khởi tạo cấu trúc state mới
 if "conversations" not in st.session_state:
-    st.session_state.conversations = {}
+    # Thử tải từ file trước
+    loaded_conversations, loaded_active_id = load_conversations()
+    
+    if loaded_conversations:
+        # Nếu có dữ liệu từ file, sử dụng nó
+        st.session_state.conversations = loaded_conversations
+        st.session_state.active_chat_id = loaded_active_id
+    else:
+        # Nếu không có, tạo mới
+        st.session_state.conversations = {}
+        st.session_state.active_chat_id = None
+
 if "active_chat_id" not in st.session_state:
     st.session_state.active_chat_id = None
 
@@ -75,6 +117,7 @@ if not st.session_state.conversations:
         "recommendation": None
     }
     st.session_state.active_chat_id = first_chat_id
+    save_conversations()  # Lưu ngay sau khi tạo
 
 # --- SIDEBAR ---
 with st.sidebar:
@@ -88,6 +131,7 @@ with st.sidebar:
             "recommendation": None
         }
         st.session_state.active_chat_id = new_chat_id
+        save_conversations()  # Lưu ngay sau khi tạo chat mới
         st.rerun()
 
     st.divider()
@@ -96,10 +140,38 @@ with st.sidebar:
     sorted_chat_ids = sorted(st.session_state.conversations.keys(), reverse=True)
 
     for chat_id in sorted_chat_ids:
-        # Nút để chọn chat
-        if st.button(st.session_state.conversations[chat_id]["title"], key=f"switch_{chat_id}", use_container_width=True):
-            st.session_state.active_chat_id = chat_id
-            st.rerun()
+        # Tạo 2 cột: cột 1 cho nút chọn chat (80%), cột 2 cho nút xóa (20%)
+        col1, col2 = st.columns([0.8, 0.2])
+        
+        with col1:
+            # Nút để chọn chat
+            if st.button(st.session_state.conversations[chat_id]["title"], key=f"switch_{chat_id}", use_container_width=True):
+                st.session_state.active_chat_id = chat_id
+                st.rerun()
+        
+        with col2:
+            # Nút xóa chat
+            if st.button("🗑️", key=f"delete_{chat_id}", use_container_width=True):
+                # Xóa cuộc trò chuyện
+                del st.session_state.conversations[chat_id]
+                
+                # Nếu đang ở chat vừa xóa, chuyển sang chat khác
+                if st.session_state.active_chat_id == chat_id:
+                    if st.session_state.conversations:
+                        # Chuyển sang chat mới nhất còn lại
+                        st.session_state.active_chat_id = sorted(st.session_state.conversations.keys(), reverse=True)[0]
+                    else:
+                        # Nếu không còn chat nào, tạo chat mới
+                        new_chat_id = f"chat_{int(time.time())}"
+                        st.session_state.conversations[new_chat_id] = {
+                            "title": "Cuộc trò chuyện mới",
+                            "messages": [],
+                            "recommendation": None
+                        }
+                        st.session_state.active_chat_id = new_chat_id
+                
+                save_conversations()  # Lưu ngay sau khi xóa
+                st.rerun()
 
 # --- GIAO DIỆN CHÍNH ---
 st.title("🚀 Cyber-Mentor AI Pentesting Agent")
@@ -144,6 +216,8 @@ if prompt_to_run:
 
     # Thêm prompt của user vào history và hiển thị
     get_current_chat_history().append({"role": "user", "content": prompt_to_run})
+    save_conversations()  # Lưu ngay sau khi có tin nhắn user
+    
     with st.chat_message("user"):
         st.markdown(prompt_to_run)
 
@@ -251,6 +325,7 @@ if prompt_to_run:
         
         # LƯU VÀO HISTORY
         get_current_chat_history().append({"role": "assistant", "content": display_text})
+        save_conversations()  # Lưu ngay sau khi có tin nhắn mới
 
         # LƯU ĐỀ XUẤT VÀO STATE
         if new_recommendation:

@@ -1,4 +1,4 @@
-# File: core/agents/executor.py (Đã cập nhật Burp Tool)
+
 
 import os
 from dotenv import load_dotenv
@@ -59,9 +59,9 @@ def create_agent_executor():
     agent_executor_chain = (
         RunnablePassthrough.assign(
            # AgentExecutor cần input là "input" và "chat_history"
-           # Chúng ta sẽ lấy chat_history từ input
+           # Chúng ta chỉ dùng "input" cho đơn giản
            input=lambda x: x["user_input"],
-           chat_history=lambda x: x.get("chat_history", []) # Lấy history, nếu không có thì dùng mảng rỗng
+           chat_history=lambda x: [] # Giữ mảng rỗng (stateless)
         )
         | agent_executor_obj # Dùng biến đã đổi tên
     )
