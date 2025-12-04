@@ -1,69 +1,112 @@
-# File: core/chains/retriever.py (Phiên bản tải Index có sẵn)
+# File: core/chains/retriever.py (Phiên bản có thể Reload)
 
 import os
 from langchain_community.vectorstores import FAISS
 from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_core.runnables import RunnableLambda
 
-# Đường dẫn tới thư mục chứa index đã lưu trên máy local
-INDEX_DIRECTORY = os.path.join(os.path.dirname(__file__), '..', '..', 'my_faiss_index')
+# Đường dẫn chuẩn - dùng biến môi trường hoặc mặc định
+def get_index_path():
+    """Trả về đường dẫn tuyệt đối tới FAISS index"""
+    # Tính từ vị trí file này: core/chains/retriever.py
+    # -> lên 2 cấp để về thư mục gốc project
+    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    return os.path.join(base_dir, 'my_faiss_index')
 
-# Khởi tạo embedding model một lần duy nhất khi module được load
-try:
-    print("--- [RAG Global] Đang khởi tạo model embedding (chỉ một lần)... ---")
-    embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-    print("--- [RAG Global] Model embedding đã sẵn sàng! ---")
-except Exception as e:
-    print(f"--- [RAG Error] Lỗi nghiêm trọng khi khởi tạo embedding model: {e} ---")
-    embeddings = None
+INDEX_DIRECTORY = get_index_path()
+
+# Biến global để cache
+_embeddings = None
+_vectorstore = None
+_last_doc_count = 0
+
+def get_embeddings():
+    """Lazy load embeddings model"""
+    global _embeddings
+    if _embeddings is None:
+        print("--- [RAG] Đang khởi tạo model embedding... ---")
+        try:
+            _embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+            print("--- [RAG] Model embedding đã sẵn sàng! ---")
+        except Exception as e:
+            print(f"--- [RAG Error] Lỗi khởi tạo embedding: {e} ---")
+            raise
+    return _embeddings
+
+def load_vectorstore(force_reload=False):
+    """Load hoặc reload vectorstore"""
+    global _vectorstore, _last_doc_count
+    
+    index_path = get_index_path()
+    embeddings = get_embeddings()
+    
+    # Kiểm tra có cần reload không
+    current_doc_count = 0
+    if os.path.exists(index_path):
+        try:
+            temp_vs = FAISS.load_local(index_path, embeddings, allow_dangerous_deserialization=True)
+            current_doc_count = temp_vs.index.ntotal
+        except:
+            pass
+    
+    need_reload = (
+        _vectorstore is None or 
+        force_reload or 
+        current_doc_count != _last_doc_count
+    )
+    
+    if need_reload:
+        if current_doc_count != _last_doc_count and _last_doc_count > 0:
+            print(f"--- [RAG] Phát hiện thay đổi: {_last_doc_count} -> {current_doc_count} docs ---")
+        
+        print(f"--- [RAG] Loading vectorstore từ: {index_path} ---")
+        
+        if not os.path.exists(index_path):
+            print(f"--- [RAG Warning] Không tìm thấy index, tạo rỗng ---")
+            _vectorstore = FAISS.from_texts(["Chưa có nguồn dữ liệu."], embeddings)
+            _last_doc_count = 1
+        else:
+            try:
+                _vectorstore = FAISS.load_local(index_path, embeddings, allow_dangerous_deserialization=True)
+                _last_doc_count = _vectorstore.index.ntotal
+                print(f"--- [RAG] Loaded {_last_doc_count} documents ---")
+            except Exception as e:
+                print(f"--- [RAG Error] Load failed: {e} ---")
+                _vectorstore = FAISS.from_texts(["Lỗi tải index"], embeddings)
+                _last_doc_count = 1
+    
+    return _vectorstore
+
+def retrieve_docs(query: str) -> list:
+    """
+    Hàm retrieve documents - tự động reload nếu có thay đổi
+    """
+    vs = load_vectorstore()
+    
+    print(f"--- [RAG] Searching for: {query[:50]}... ---")
+    
+    docs = vs.similarity_search(query, k=5)
+    
+    print(f"--- [RAG] Found {len(docs)} documents ---")
+    for i, doc in enumerate(docs[:3]):
+        source = doc.metadata.get('source', 'N/A')
+        print(f"    {i+1}. {source}")
+    
+    return docs
+
+def reload_retriever():
+    """Force reload - gọi sau khi thêm nguồn mới"""
+    global _vectorstore, _last_doc_count
+    print("--- [RAG] Force reload... ---")
+    _vectorstore = None
+    _last_doc_count = 0
+    load_vectorstore(force_reload=True)
 
 def create_retriever():
-    """
-    Hàm này tải một FAISS index đã được xây dựng sẵn từ Colab.
-    Sử dụng embedding model đã được khởi tạo sẵn.
-    """
-    global embeddings
+    """Tạo retriever object cho LangChain compatibility"""
+    vs = load_vectorstore()
+    return vs.as_retriever(search_kwargs={"k": 5})
 
-    if embeddings is None:
-        print("--- [RAG Error] Embedding model chưa được khởi tạo thành công. Không thể tải index. ---")
-        try:
-             embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-             print("--- [RAG Retry] Khởi tạo lại embedding model thành công. ---")
-        except Exception as retry_e:
-             print(f"--- [RAG Error] Khởi tạo lại embedding model thất bại: {retry_e} ---")
-             # Cố gắng tạo retriever rỗng nếu không thể load model
-             try:
-                 temp_embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2") # Tạo lại instance tạm
-                 vectorstore = FAISS.from_texts(["Lỗi embedding model"], temp_embeddings)
-                 return vectorstore.as_retriever()
-             except Exception: # Nếu vẫn lỗi thì chịu
-                 print("--- [RAG FATAL] Không thể tạo retriever rỗng. ---")
-                 raise # Ném lỗi ra ngoài
-
-
-    print(f"--- [RAG Local] Đang tải CSDL vector từ: {INDEX_DIRECTORY} ---")
-
-    if not os.path.exists(INDEX_DIRECTORY) or not os.path.isdir(INDEX_DIRECTORY):
-        print(f"--- [RAG Error] Không tìm thấy thư mục index hợp lệ tại: '{INDEX_DIRECTORY}' ---")
-        print("Hãy chắc chắn bạn đã chạy Colab Notebook, tải index về và đặt đúng vị trí.")
-        vectorstore = FAISS.from_texts(["Index không tồn tại"], embeddings)
-        return vectorstore.as_retriever()
-
-    try:
-        vectorstore = FAISS.load_local(
-            INDEX_DIRECTORY,
-            embeddings,
-            allow_dangerous_deserialization=True
-        )
-        print("--- [RAG Local] Đã tải CSDL vector thành công! ---")
-        return vectorstore.as_retriever()
-    except FileNotFoundError:
-         print(f"--- [RAG Error] Không tìm thấy file index.faiss hoặc index.pkl trong '{INDEX_DIRECTORY}'.")
-    except Exception as e:
-        print(f"--- [RAG Error] Không thể tải index từ '{INDEX_DIRECTORY}'. Lỗi: {e} ---")
-
-    print("--- [RAG Warning] Tạo retriever rỗng do lỗi tải index. ---")
-    vectorstore = FAISS.from_texts(["Lỗi tải index"], embeddings)
-    return vectorstore.as_retriever()
-
-# Khởi tạo retriever ngay khi module được import để cache lại
-retriever = create_retriever()
+# === EXPORT ===
+# Tạo RunnableLambda để dùng trong LangChain chains
+retriever = RunnableLambda(retrieve_docs)

@@ -299,10 +299,26 @@ details[open] span[data-testid="stExpanderToggleIcon"]::before {
 }
 
 /* === CHAT INPUT === */
+/* Container for chat input - fixed at bottom of center column */
+[data-testid="column"]:nth-child(2) {
+    display: flex !important;
+    flex-direction: column !important;
+}
+
+[data-testid="column"]:nth-child(2) [data-testid="stChatInput"] {
+    position: sticky !important;
+    bottom: 20px !important;
+    background: white !important;
+    padding: 12px 0 !important;
+    margin-top: auto !important;
+    z-index: 100 !important;
+}
+
 .stChatInput {
     border: 1px solid #dadce0 !important;
     border-radius: 24px !important;
     padding: 4px !important;
+    background: #f8f9fa !important;
 }
 
 .stChatInput input {

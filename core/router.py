@@ -1,4 +1,4 @@
-# File: core/router.py (CẬP NHẬT HOÀN CHỈNH)
+# File: core/router.py (CẬP NHẬT - FIX RAG)
 
 import os
 from dotenv import load_dotenv
@@ -36,7 +36,7 @@ def format_docs(docs: list[Document]) -> str:
         print("🔴 [RAG DEBUG] Không tìm thấy documents nào!")
         return "Không tìm thấy thông tin liên quan trong cơ sở tri thức."
     
-    top_k_docs = docs[:3]
+    top_k_docs = docs[:5]  # Lấy top 5 thay vì 3
     
     # === DEBUG LOGGING ===
     print(f"\n{'='*60}")
@@ -72,6 +72,11 @@ def log_classification(input_dict: dict) -> dict:
     
     return input_dict
 
+# Helper để check có docs hay không
+def has_rag_docs(x):
+    docs = x.get("rag_context_docs")
+    return docs is not None and len(docs) > 0
+
 # Chain RAG Trực tiếp (LUỒNG 1)
 direct_rag_answer_chain = (
     # Nhận input {"user_input": ..., "rag_context": ...}
@@ -94,7 +99,7 @@ def create_router():
     # Input: {"user_input": "..."} -> Output: list[Document]
     early_rag_retrieval_chain = (lambda x: x["user_input"]) | retriever
 
-    # 3. Logic Phân nhánh 3 Luồng (CẬP NHẬT)
+    # 3. Logic Phân nhánh 3 Luồng (CẬP NHẬT - SỬA LỖI RAG)
     # Input cho branch là dict: {"topic": ..., "user_input": ..., "rag_context_docs": ...}
     branch = RunnableBranch(
         
@@ -105,20 +110,21 @@ def create_router():
             RunnableLambda(prepare_subchain_input) | agent_executor
         ),
         
-        # ĐIỀU KIỆN 2: Nếu là câu hỏi cụ thể VÀ có RAG (LUỒNG 1)
-        (lambda x: ("specific_vulnerability_info" in x["topic"] or "tool_usage" in x["topic"]) and x.get("rag_context_docs"),
-            # Nếu ĐÚNG -> Định dạng context và chạy chain RAG TRỰC TIẾP
+        # ĐIỀU KIỆN 2: Nếu là câu hỏi cụ thể VỀ VULNERABILITY hoặc TOOL (LUỒNG 1)
+        # Luôn dùng RAG chain cho các câu hỏi này, có hoặc không có docs
+        (lambda x: "specific_vulnerability_info" in x["topic"] or "tool_usage" in x["topic"],
+            # Định dạng context và chạy chain RAG TRỰC TIẾP
             RunnableLambda(
                 lambda x: {
                     "user_input": x["user_input"],
-                    "rag_context": format_docs(x["rag_context_docs"]) # Định dạng context
+                    "rag_context": format_docs(x.get("rag_context_docs", []))
                 }
             ) | direct_rag_answer_chain
         ),
         
         # FALLBACK: (LUỒNG 2 - Lên kế hoạch)
         # Nếu là 'generate_full_plan' HOẶC các luồng kia không khớp
-        RunnableLambda(prepare_subchain_input) | full_plan_chain # full_plan_chain tự query RAG lại
+        RunnableLambda(prepare_subchain_input) | full_plan_chain
     )
 
     # 4. Gắn kết tất cả lại
@@ -127,9 +133,8 @@ def create_router():
     # - Chạy retriever sớm lấy "rag_context_docs"
     # - Đưa cả ba vào chain phân nhánh 'branch'
     final_chain = RunnablePassthrough.assign(
-        topic=classifier_chain, # Chạy phân loại
-        rag_context_docs=early_rag_retrieval_chain # Chạy RAG sớm song song
-        # Input gốc ("user_input") được giữ lại tự động bởi RunnablePassthrough
-    ) | RunnableLambda(log_classification) | branch # Thêm logging trước branch
+        topic=classifier_chain,
+        rag_context_docs=early_rag_retrieval_chain
+    ) | RunnableLambda(log_classification) | branch
 
     return final_chain
