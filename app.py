@@ -1,72 +1,135 @@
-# File: app.py (Phiên bản Nâng cấp "Lưu Chat & New Chat")
+# File: app.py (NotebookLM-Style - Final Polish)
 
 import streamlit as st
 from langchain_core.messages import AIMessage
 from langchain_core.documents import Document
 import os
+import sys
 from dotenv import load_dotenv
 import time
+import json
 
-# --- LOAD ENV FIRST ---
 load_dotenv()
+sys.path.append(os.path.dirname(__file__))
 
-# --- IMPORT AGENT SAU KHI LOAD ENV ---
 from core.router import create_router
+from utils.source_manager import (
+    load_sources, add_source, delete_source, 
+    update_source_chunks, update_source_summary, get_source_count
+)
+from utils.document_processor import (
+    process_pdf, process_txt, process_docx, process_md,
+    chunk_documents, add_to_faiss, get_faiss_stats
+)
+from utils.url_fetcher import url_to_document
+from utils.ai_generator import generate_document_summary, generate_suggested_questions
 
-# --- CẤU HÌNH TRANG WEB ---
+# === PAGE CONFIG ===
 st.set_page_config(
     page_title="Cyber-Mentor AI",
     page_icon="🚀",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded" # Force expanded to ensure toggle is visible
 )
 
-# --- KHỞI TẠO AGENT ---
+# === LOAD CSS FROM FILE ===
+def load_css():
+    css_file = os.path.join(os.path.dirname(__file__), "assets", "style.css")
+    if os.path.exists(css_file):
+        with open(css_file, 'r', encoding='utf-8') as f:
+            css_content = f.read()
+        st.markdown(f"<style>{css_content}</style>", unsafe_allow_html=True)
+    else:
+        st.warning(f"⚠️ Không tìm thấy file style.css tại: {css_file}")
+
+load_css()
+
+# === CRITICAL CSS FOR 3 COLUMNS (ensure it applies) ===
+st.markdown("""
+<style>
+/* Force 3 white cards with visible borders */
+[data-testid="column"] {
+    background-color: #ffffff !important;
+    border: 2px solid #dadce0 !important;
+    border-radius: 24px !important;
+    box-shadow: 0 2px 8px rgba(60, 64, 67, 0.15), 0 8px 16px rgba(60, 64, 67, 0.1) !important;
+    padding: 20px !important;
+    min-height: calc(100vh - 140px) !important;
+}
+
+/* Gray background */
+.stApp, [data-testid="stAppViewContainer"], .main {
+    background-color: #f0f4f9 !important;
+}
+
+/* Gap between columns */
+[data-testid="stHorizontalBlock"] {
+    gap: 16px !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+
+# === AGENT INIT ===
 @st.cache_resource
 def load_agent():
     try:
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:
-            st.error("Lỗi: Không tìm thấy GEMINI_API_KEY trong file .env!")
+            st.error("Lỗi: Không tìm thấy GEMINI_API_KEY")
             st.stop()
         
-        kali_url = os.getenv("KALI_LISTENER_URL")
-        if not kali_url:
-            st.warning("Cảnh báo: Không tìm thấy KALI_LISTENER_URL. Các tool (Nmap, SQLMap) sẽ không hoạt động.")
-        # Bỏ st.success đi để đỡ rối giao diện
-        # else:
-        #     st.success(f"Đã kết nối với Kali Listener tại: {kali_url}")
-
-        print("--- Đang khởi tạo Agent Router 3 Luồng... ---")
         agent = create_router()
-        print("--- Agent Router 3 Luồng đã sẵn sàng! ---")
         return agent
     except Exception as e:
-        st.error(f"Lỗi khi khởi tạo Agent: {e}")
-        st.exception(e)
+        st.error(f"Lỗi khởi tạo Agent: {e}")
         st.stop()
 
 agent_chain = load_agent()
 
-# --- QUẢN LÝ SESSION STATE (NÂNG CẤP) ---
+# === CHAT MANAGEMENT ===
+CHAT_HISTORY_DIR = os.getenv("CHAT_HISTORY_DIR", ".")
+CHAT_HISTORY_FILE = os.path.join(CHAT_HISTORY_DIR, "chat_history.json")
+
+def save_conversations():
+    try:
+        with open(CHAT_HISTORY_FILE, 'w', encoding='utf-8') as f:
+            json.dump({
+                'conversations': st.session_state.conversations,
+                'active_chat_id': st.session_state.active_chat_id
+            }, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"Lỗi lưu chat: {e}")
+
+def load_conversations():
+    try:
+        if os.path.exists(CHAT_HISTORY_FILE):
+            with open(CHAT_HISTORY_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                return data.get('conversations', {}), data.get('active_chat_id')
+    except Exception as e:
+        print(f"Lỗi tải chat: {e}")
+    return {}, None
+
 def get_current_chat_history():
-    """Lấy message list của chat đang active."""
     return st.session_state.conversations[st.session_state.active_chat_id]["messages"]
 
 def get_current_recommendation():
-    """Lấy recommendation của chat đang active."""
     return st.session_state.conversations[st.session_state.active_chat_id]["recommendation"]
 
 def set_current_recommendation(value):
-    """Set recommendation cho chat đang active."""
     st.session_state.conversations[st.session_state.active_chat_id]["recommendation"] = value
 
-# Khởi tạo cấu trúc state mới
+# Session state init
 if "conversations" not in st.session_state:
-    st.session_state.conversations = {}
-if "active_chat_id" not in st.session_state:
-    st.session_state.active_chat_id = None
+    loaded_conversations, loaded_active_id = load_conversations()
+    if loaded_conversations:
+        st.session_state.conversations = loaded_conversations
+        st.session_state.active_chat_id = loaded_active_id
+    else:
+        st.session_state.conversations = {}
+        st.session_state.active_chat_id = None
 
-# Nếu chưa có chat nào, tạo chat đầu tiên
 if not st.session_state.conversations:
     first_chat_id = f"chat_{int(time.time())}"
     st.session_state.conversations[first_chat_id] = {
@@ -75,12 +138,103 @@ if not st.session_state.conversations:
         "recommendation": None
     }
     st.session_state.active_chat_id = first_chat_id
+    save_conversations()
 
-# --- SIDEBAR ---
-with st.sidebar:
-    st.title("📝 Lịch sử Chat")
+# === MODAL: ADD SOURCE ===
+@st.dialog("Thêm nguồn mới", width="large")
+def add_source_modal():
+    tab1, tab2, tab3 = st.tabs(["File", "URL", "Text"])
     
-    if st.button("➕ Trò chuyện mới", use_container_width=True):
+    with tab1:
+        st.markdown("Tải lên PDF, TXT, DOCX hoặc MD")
+        uploaded_files = st.file_uploader(
+            "Chọn tệp",
+            type=['pdf', 'txt', 'docx', 'md'],
+            accept_multiple_files=True,
+            label_visibility="collapsed"
+        )
+        
+        if uploaded_files and st.button("Thêm", use_container_width=True):
+            with st.spinner("Đang xử lý..."):
+                for file in uploaded_files:
+                    file_bytes = file.read()
+                    file_ext = file.name.split('.')[-1].lower()
+                    
+                    docs = []
+                    if file_ext == 'pdf':
+                        docs = process_pdf(file_bytes, file.name)
+                    elif file_ext == 'txt':
+                        docs = process_txt(file_bytes, file.name)
+                    elif file_ext == 'docx':
+                        docs = process_docx(file_bytes, file.name)
+                    elif file_ext == 'md':
+                        docs = process_md(file_bytes, file.name)
+                    
+                    if docs:
+                        chunks = chunk_documents(docs)
+                        full_text = "\n".join([doc.page_content for doc in docs])
+                        summary, _ = generate_document_summary(full_text, file.name)
+                        questions = generate_suggested_questions(full_text, file.name)
+                        add_source(file.name, file_ext, file.size, summary, questions)
+                        update_source_chunks(file.name, len(chunks))
+                        add_to_faiss(chunks, "my_faiss_index")
+                        st.success(f"✓ {file.name}")
+                
+                time.sleep(0.5)
+                st.rerun()
+    
+    with tab2:
+        st.markdown("Nhập URL")
+        url_input = st.text_input("URL", placeholder="https://example.com")
+        
+        if url_input and st.button("Lấy", use_container_width=True):
+            with st.spinner("Đang lấy..."):
+                success, doc, error = url_to_document(url_input)
+                if success:
+                    chunks = chunk_documents([doc])
+                    summary, _ = generate_document_summary(doc.page_content, url_input)
+                    questions = generate_suggested_questions(doc.page_content, url_input)
+                    add_source(url_input, "url", len(doc.page_content), summary, questions)
+                    update_source_chunks(url_input, len(chunks))
+                    add_to_faiss(chunks, "my_faiss_index")
+                    st.success("✓ Đã thêm")
+                    time.sleep(0.5)
+                    st.rerun()
+                else:
+                    st.error(error)
+    
+    with tab3:
+        st.markdown("Dán văn bản")
+        text_input = st.text_area("Nội dung", height=200)
+        text_name = st.text_input("Tên", placeholder="ví dụ: Ghi chú")
+        
+        if text_input and text_name and st.button("Thêm", use_container_width=True):
+            with st.spinner("Đang xử lý..."):
+                doc = Document(page_content=text_input, metadata={'source': text_name})
+                chunks = chunk_documents([doc])
+                summary, _ = generate_document_summary(text_input, text_name)
+                questions = generate_suggested_questions(text_input, text_name)
+                add_source(text_name, "text", len(text_input), summary, questions)
+                update_source_chunks(text_name, len(chunks))
+                add_to_faiss(chunks, "my_faiss_index")
+                st.success("✓ Đã thêm")
+                time.sleep(0.5)
+                st.rerun()
+
+# ==============================================
+# MAIN LAYOUT: LEFT (HISTORY) | CENTER (CHAT) | RIGHT (SOURCES + QUESTIONS)
+# ==============================================
+
+# Create 3-column layout
+col_left, col_center, col_right = st.columns([2.5, 5, 2.5], gap="medium")
+
+# ==============================================
+# LEFT: CHAT HISTORY
+# ==============================================
+with col_left:
+    st.markdown("### Lịch sử")
+    
+    if st.button("Trò chuyện mới", use_container_width=True, type="primary"):
         new_chat_id = f"chat_{int(time.time())}"
         st.session_state.conversations[new_chat_id] = {
             "title": "Cuộc trò chuyện mới",
@@ -88,174 +242,203 @@ with st.sidebar:
             "recommendation": None
         }
         st.session_state.active_chat_id = new_chat_id
+        save_conversations()
         st.rerun()
-
-    st.divider()
-
-    # Sắp xếp các chat theo thời gian, mới nhất lên trên
-    sorted_chat_ids = sorted(st.session_state.conversations.keys(), reverse=True)
-
-    for chat_id in sorted_chat_ids:
-        # Nút để chọn chat
-        if st.button(st.session_state.conversations[chat_id]["title"], key=f"switch_{chat_id}", use_container_width=True):
-            st.session_state.active_chat_id = chat_id
-            st.rerun()
-
-# --- GIAO DIỆN CHÍNH ---
-st.title("🚀 Cyber-Mentor AI Pentesting Agent")
-st.caption("AI Co-Pilot: Phân tích, Thực thi và Đề xuất (Human-in-the-Loop)")
-
-# --- 1. HIỂN THỊ LỊCH SỬ CHAT (CỦA PHIÊN HIỆN TẠI) ---
-for message in get_current_chat_history():
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
-
-# --- 2. LOGIC XỬ LÝ INPUT (QUAN TRỌNG NHẤT) ---
-prompt_to_run = None
-run_from_button = False
-
-# ƯU TIÊN 1: Kiểm tra xem có Nút "Chấp nhận" không
-recommendation = get_current_recommendation()
-if recommendation:
-    st.info(f"🤖 **Đề xuất tiếp theo:**\n```bash\n{recommendation}\n```")
     
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("✅ Chấp nhận Đề xuất", use_container_width=True, type="primary"):
-            prompt_to_run = recommendation
-            set_current_recommendation(None)
-            run_from_button = True
-    with col2:
-        if st.button("❌ Hủy bỏ", use_container_width=True):
-            set_current_recommendation(None)
-            st.rerun()
+    st.markdown("")
+    
+    # List chats
+    sorted_chats = sorted(st.session_state.conversations.keys(), reverse=True)
+    for chat_id in sorted_chats[:10]:  # Max 10
+        chat_title = st.session_state.conversations[chat_id]["title"][:30]
+        
+        # Highlight active chat
+        if chat_id == st.session_state.active_chat_id:
+            st.markdown(f"**→ {chat_title}**")
+        else:
+            if st.button(chat_title, key=f"chat_{chat_id}", use_container_width=True):
+                st.session_state.active_chat_id = chat_id
+                st.rerun()
 
-# ƯU TIÊN 2: Nếu không bấm nút, lấy lệnh từ ô chat
-if not run_from_button:
-    if new_prompt_from_chat := st.chat_input("Nhập yêu cầu (ví dụ: 'Quét Nmap trang scanme.nmap.org')..."):
-        prompt_to_run = new_prompt_from_chat
-        set_current_recommendation(None)
-
-# --- 3. BLOCK CHẠY AGENT (CHỈ CHẠY KHI CÓ LỆNH MỚI) ---
-if prompt_to_run:
-    # Cập nhật tiêu đề cho cuộc trò chuyện nếu đây là tin nhắn đầu tiên
-    if not get_current_chat_history():
-        st.session_state.conversations[st.session_state.active_chat_id]["title"] = prompt_to_run[:30] + "..."
-
-    # Thêm prompt của user vào history và hiển thị
-    get_current_chat_history().append({"role": "user", "content": prompt_to_run})
-    with st.chat_message("user"):
-        st.markdown(prompt_to_run)
-
-    # Chạy Agent và hiển thị kết quả
-    with st.chat_message("assistant"):
-        with st.spinner("Cyber-Mentor đang phân tích..."):
-            try:
-                print(f"--- Đang gọi Agent 3 Luồng với input: {prompt_to_run} ---")
-                # Lấy history của chat hiện tại để đưa vào agent
-                current_history = get_current_chat_history()
-                response = agent_chain.invoke({
-                    "user_input": prompt_to_run,
-                    "chat_history": current_history # Thêm history vào
-                })
-                print(f"--- Agent đã trả về response type: {type(response)} ---")
-                if isinstance(response, dict):
-                    print(f"--- Keys: {response.keys()} ---")
-            except Exception as e:
-                st.error(f"Đã xảy ra lỗi khi xử lý yêu cầu: {e}")
-                st.exception(e)
-                st.stop()
-
-        # --- Xử lý và Phân tích Response ---
-        full_response_text = ""
-        new_recommendation = None
-
-        # --- XỬ LÝ KẾT QUẢ TỪ LUỒNG 2 (full_plan_chain) ---
-        if isinstance(response, dict) and 'actionable_intelligence' in response:
-            st.markdown("### 🤖 Phản hồi (Luồng 2: Lên Kế hoạch)")
+# ==============================================
+# CENTER: CHAT
+# ==============================================
+with col_center:
+    st.markdown("### Chat")
+    
+    # Display messages
+    for message in get_current_chat_history():
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+    
+    # === INPUT HANDLING (ĐẶT TRƯỚC ĐỂ TRÁNH MẤT Ô INPUT) ===
+    # Chat input phải được render trước để Streamlit không bị mất nó
+    new_prompt = st.chat_input("Nhập câu hỏi...")
+    
+    # Xác định prompt_to_run từ nhiều nguồn
+    prompt_to_run = None
+    
+    # Nguồn 1: Từ suggested questions (click button)
+    if "chat_input_initial" in st.session_state and st.session_state.chat_input_initial:
+        prompt_to_run = st.session_state.chat_input_initial
+        st.session_state.chat_input_initial = None
+    # Nguồn 2: Từ chat input
+    elif new_prompt:
+        prompt_to_run = new_prompt
+    
+    # Recommendations (hiển thị sau messages)
+    recommendation = get_current_recommendation()
+    if recommendation:
+        st.info(f"**Đề xuất:** {recommendation}")
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Chấp nhận", use_container_width=True, key="accept_rec"):
+                # Lưu recommendation vào session để xử lý ở lần rerun tiếp theo
+                st.session_state.chat_input_initial = recommendation
+                set_current_recommendation(None)
+                st.rerun()
+        with col2:
+            if st.button("Bỏ qua", use_container_width=True, key="skip_rec"):
+                set_current_recommendation(None)
+                st.rerun()
+    
+    # Process prompt
+    if prompt_to_run:
+        if not get_current_chat_history():
+            st.session_state.conversations[st.session_state.active_chat_id]["title"] = prompt_to_run[:30]
+        
+        get_current_chat_history().append({"role": "user", "content": prompt_to_run})
+        save_conversations()
+        
+        with st.chat_message("user"):
+            st.markdown(prompt_to_run)
+        
+        with st.chat_message("assistant"):
+            with st.spinner("Đang phân tích..."):
+                try:
+                    response = agent_chain.invoke({
+                        "user_input": prompt_to_run,
+                        "chat_history": get_current_chat_history()
+                    })
+                except Exception as e:
+                    st.error(f"Lỗi: {e}")
+                    st.stop()
             
-            final_step_key = 'actionable_intelligence'
-            final_step_title = "Payload và Hướng dẫn Chi tiết"
-            expander_title = f"🔎 Xem Chuỗi tư duy (Luồng 2: {final_step_title})"
+            # Parse response
+            full_response_text = ""
+            
+            if isinstance(response, dict) and 'actionable_intelligence' in response:
+                full_response_text = response.get('actionable_intelligence', '')
+                if hasattr(full_response_text, 'content'):
+                    full_response_text = full_response_text.content
+            elif isinstance(response, dict) and 'output' in response:
+                full_response_text = response['output']
+            elif isinstance(response, str):
+                full_response_text = response
+            else:
+                full_response_text = str(response)
+            
+            st.markdown(full_response_text)
+            
+            get_current_chat_history().append({"role": "assistant", "content": full_response_text})
+            save_conversations()
+            
+            # Parse recommendation
+            if "ĐỀ XUẤT:" in full_response_text:
+                try:
+                    parts = full_response_text.split("ĐỀ XUẤT:", 1)
+                    recommend_cmd = parts[1].strip().strip('`').strip()
+                    if recommend_cmd:
+                        set_current_recommendation(recommend_cmd)
+                        st.rerun()
+                except:
+                    pass
 
-            with st.expander(expander_title, expanded=True):
-                steps_to_display = {
-                    "Bước 1: Thu thập thông tin": "recon_results",
-                    "Bước 2: Phân tích lỗ hổng": "analysis_results",
-                    "Bước 3: Lên kế hoạch khai thác": "exploitation_results",
-                    "Bước 4: Tạo Payload (từ RAG)": "actionable_intelligence",
-                }
+# ==============================================
+# RIGHT: SOURCES + SUGGESTED QUESTIONS
+# ==============================================
+with col_right:
+    st.markdown("### Nguồn")
+    
+    # Add button
+    if st.button("Thêm nguồn", use_container_width=True, type="primary"):
+        add_source_modal()
+    
+    st.markdown("")
+    
+    # Stats
+    sources = load_sources()
+    source_count = len(sources)
+    faiss_stats = get_faiss_stats("my_faiss_index")
+    total_chunks = faiss_stats.get("doc_count", 0)
+    
+    # Stats in horizontal layout
+    st.markdown(f"""
+    <div style="display: flex; gap: 12px; margin-bottom: 16px;">
+        <div class="stat-card" style="flex: 1;">
+            <div class="stat-number">{source_count}</div>
+            <div class="stat-label">Nguồn</div>
+        </div>
+        <div class="stat-card" style="flex: 1;">
+            <div class="stat-number">{total_chunks}</div>
+            <div class="stat-label">Chunks</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.markdown("---")
+    
+    # Source list
+    if sources:
+        select_all = st.checkbox("Chọn tất cả", value=True)
+        st.markdown("")
+        
+        selected_sources = []
+        
+        for idx, source in enumerate(sources):
+            with st.expander(f"{source['name'][:35]}...", expanded=False):
+                is_selected = st.checkbox(
+                    "Dùng nguồn này",
+                    value=select_all,
+                    key=f"src_{idx}",
+                    disabled=select_all
+                )
                 
-                rag_context_str = response.get("rag_context")
-                if isinstance(rag_context_str, str) and rag_context_str != "Không tìm thấy thông tin liên quan trong cơ sở tri thức.":
-                        st.subheader("📚 Thông tin tham khảo từ RAG:")
-                        with st.container(border=True):
-                            st.markdown(rag_context_str)
-                        st.divider()
-
-                for display_title, response_key in steps_to_display.items():
-                    content = response.get(response_key)
-                    content_text = ""
-                    if isinstance(content, AIMessage):
-                        content_text = content.content
-                    elif isinstance(content, str):
-                        content_text = content
-                    elif content is not None:
-                        content_text = str(content)
-
-                    if content_text:
-                        st.subheader(f"📝 {display_title}")
-                        st.markdown(content_text)
-                        if response_key != final_step_key:
-                            st.divider()
-                        else:
-                            full_response_text = content_text
-
-        # --- XỬ LÝ KẾT QUẢ TỪ LUỒNG 3 (agent_executor) ---
-        elif isinstance(response, dict) and 'output' in response:
-            st.markdown("### 🤖 Phản hồi (Luồng 3: Thực thi Tool)")
-            full_response_text = response['output']
-
-        # --- XỬ LÝ KẾT QUẢ TỪ LUỒNG 1 (RAG Trực tiếp) ---
-        elif isinstance(response, str):
-            st.markdown("### 🤖 Phản hồi (Luồng 1: RAG Hỏi đáp):")
-            full_response_text = response
-
-        # --- XỬ LÝ CÁC TRƯỜNG HỢP KHÁC / LỖI ---
-        else:
-            st.markdown("### ⚠️ Phản hồi không xác định:")
-            full_response_text = str(response)
-
-        
-        # --- LOGIC PHÂN TÍCH ĐỀ XUẤT ---
-        display_text = full_response_text
-        
-        if "ĐỀ XUẤT:" in full_response_text:
-            try:
-                parts = full_response_text.split("ĐỀ XUẤT:", 1)
-                display_text = parts[0]
-                recommend_cmd = parts[1].strip().strip('`').strip()
+                if select_all or is_selected:
+                    selected_sources.append(source)
                 
-                if recommend_cmd:
-                    new_recommendation = recommend_cmd
-            except Exception as e:
-                print(f"Lỗi parse đề xuất: {e}")
-                display_text = full_response_text
-
-        # HIỂN THỊ NỘI DUNG
-        if "Kết quả quét Nmap" in display_text or "Kết quả quét SQLMap" in display_text:
-             st.markdown("**Kết quả thực thi:**")
-             st.code(display_text, language="bash")
+                st.caption(f"Loại: {source['type'].upper()} • Chunks: {source.get('chunks', 0)}")
+                
+                if source.get('summary'):
+                    st.markdown("**Tóm tắt:**")
+                    st.info(source['summary'][:150] + "..." if len(source.get('summary', '')) > 150 else source.get('summary', ''))
+                
+                st.markdown("")
+                if st.button("Xóa", key=f"del_{idx}", use_container_width=True):
+                    delete_source(source['name'])
+                    st.rerun()
+        
+        st.session_state.selected_sources = selected_sources
+        
+        # === SUGGESTED QUESTIONS (DỰA VÀO NGUỒN ĐÃ CHỌN) ===
+        st.markdown("---")
+        st.markdown("### Câu hỏi gợi ý")
+        
+        if selected_sources:
+            # Collect questions from selected sources only
+            all_questions = []
+            for source in selected_sources:
+                if source.get('suggested_questions'):
+                    for q in source['suggested_questions']:
+                        all_questions.append(q)
+            
+            # Show max 5 questions
+            for idx, q in enumerate(all_questions[:5]):
+                if st.button(q[:60] + "..." if len(q) > 60 else q, key=f"quest_{idx}", use_container_width=True):
+                    st.session_state.chat_input_initial = q
+                    st.rerun()
         else:
-             st.markdown(display_text)
-        
-        # LƯU VÀO HISTORY
-        get_current_chat_history().append({"role": "assistant", "content": display_text})
-
-        # LƯU ĐỀ XUẤT VÀO STATE
-        if new_recommendation:
-            set_current_recommendation(new_recommendation)
-            st.rerun() 
-        
-        elif run_from_button:
-            st.rerun()
+            st.caption("Chọn nguồn để xem câu hỏi")
+    else:
+        st.info("Chưa có nguồn")
+        st.session_state.selected_sources = []

@@ -33,8 +33,22 @@ answer_llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash",
 # Hàm helper để định dạng context từ retriever
 def format_docs(docs: list[Document]) -> str:
     if not isinstance(docs, list) or not docs:
+        print("🔴 [RAG DEBUG] Không tìm thấy documents nào!")
         return "Không tìm thấy thông tin liên quan trong cơ sở tri thức."
-    top_k_docs = docs[:3] 
+    
+    top_k_docs = docs[:3]
+    
+    # === DEBUG LOGGING ===
+    print(f"\n{'='*60}")
+    print(f"🟢 [RAG DEBUG] Tìm thấy {len(docs)} documents, lấy top {len(top_k_docs)}")
+    for i, doc in enumerate(top_k_docs):
+        source = doc.metadata.get('source', 'N/A')
+        content_preview = doc.page_content[:200].replace('\n', ' ')
+        print(f"  📄 Doc {i+1}: {source}")
+        print(f"     Preview: {content_preview}...")
+    print(f"{'='*60}\n")
+    # === END DEBUG ===
+    
     return "\n\n---\n\n".join(
         f"Nguồn: {doc.metadata.get('source', 'N/A')}\n\n{doc.page_content}"
         for doc in top_k_docs
@@ -43,6 +57,20 @@ def format_docs(docs: list[Document]) -> str:
 # Hàm helper để trích xuất user_input cho các chain con
 def prepare_subchain_input(input_dict: dict) -> dict:
     return {"user_input": input_dict["user_input"]}
+
+# Hàm debug để log thông tin phân loại
+def log_classification(input_dict: dict) -> dict:
+    topic = input_dict.get("topic", "UNKNOWN")
+    user_input = input_dict.get("user_input", "")[:50]
+    rag_docs = input_dict.get("rag_context_docs", [])
+    
+    print(f"\n{'='*60}")
+    print(f"🔵 [ROUTER DEBUG] Topic: {topic}")
+    print(f"   User Input: {user_input}...")
+    print(f"   RAG Docs Count: {len(rag_docs) if rag_docs else 0}")
+    print(f"{'='*60}\n")
+    
+    return input_dict
 
 # Chain RAG Trực tiếp (LUỒNG 1)
 direct_rag_answer_chain = (
@@ -102,6 +130,6 @@ def create_router():
         topic=classifier_chain, # Chạy phân loại
         rag_context_docs=early_rag_retrieval_chain # Chạy RAG sớm song song
         # Input gốc ("user_input") được giữ lại tự động bởi RunnablePassthrough
-    ) | branch # Đưa dict {"topic": ..., "user_input": ..., "rag_context_docs": ...} vào branch
+    ) | RunnableLambda(log_classification) | branch # Thêm logging trước branch
 
     return final_chain

@@ -1,0 +1,18 @@
+/* Settings Icon Button */
+button[kind="secondary"][data-testid*="goto_settings"],
+button[data-testid*="goto_settings"] {
+    font-size: 20px !important;
+    padding: 8px 16px !important;
+    border-radius: 50% !important;
+    width: 44px !important;
+    height: 44px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+}
+
+button[data-testid*="goto_settings"]:hover {
+    background: #f1f3f4 !important;
+    transform: rotate(45deg) !important;
+    transition: all 0.3s ease !important;
+}

@@ -1,0 +1,443 @@
+/* ============================================
+   NOTEBOOKLM STYLE - Ultra Clean Layout
+   3 White Cards on Gray Background
+   COMPLETE VERSION - All Styles Included
+   ============================================ */
+
+/* Import Google Sans font */
+@import url('https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;600&display=swap');
+
+/* === GLOBAL RESET & BACKGROUND === */
+* {
+    font-family: 'Google Sans', 'Segoe UI', system-ui, -apple-system, sans-serif;
+}
+
+html,
+body {
+    background-color: #f0f4f9 !important;
+}
+
+.stApp,
+[data-testid="stAppViewContainer"],
+[data-testid="stAppViewContainer"]>.main,
+.main {
+    background-color: #f0f4f9 !important;
+}
+
+.main .block-container {
+    padding: 2rem 2.5rem !important;
+    max-width: 100% !important;
+    background-color: #f0f4f9 !important;
+}
+
+/* === HEADINGS === */
+h1,
+h2,
+h3 {
+    font-weight: 400 !important;
+    color: #202124 !important;
+}
+
+h3,
+.stMarkdown h3 {
+    font-size: 16px !important;
+    font-weight: 500 !important;
+    padding-bottom: 16px !important;
+    margin-bottom: 20px !important;
+    border-bottom: 1px solid #e8eaed !important;
+    letter-spacing: -0.2px !important;
+}
+
+/* === SIDEBAR STYLING === */
+[data-testid="stSidebar"] {
+    background-color: #ffffff !important;
+    border-right: 1px solid #e0e0e0 !important;
+}
+
+[data-testid="stSidebar"] [data-testid="stSidebarNav"] {
+    background-color: #ffffff !important;
+}
+
+/* =============================================
+   3 SEPARATE WHITE CARDS - MAIN LAYOUT
+   ============================================= */
+
+/* Parent container - transparent with gaps */
+section[data-testid="stHorizontalBlock"],
+[data-testid="stHorizontalBlock"],
+.stHorizontalBlock {
+    gap: 20px !important;
+    background: transparent !important;
+    padding: 0 !important;
+    margin: 0 !important;
+}
+
+/* EACH COLUMN = SEPARATE WHITE ROUNDED CARD */
+/* Multiple selectors to ensure it works */
+section[data-testid="stHorizontalBlock"]>div[data-testid="column"],
+[data-testid="stHorizontalBlock"]>div[data-testid="column"],
+[data-testid="column"],
+.stColumn,
+div[data-testid="stVerticalBlockBorderWrapper"] {
+    background-color: #ffffff !important;
+    border: 2px solid #c4c7cc !important;
+    border-radius: 24px !important;
+    box-shadow: 0 2px 6px rgba(60, 64, 67, 0.15), 0 6px 16px rgba(60, 64, 67, 0.1) !important;
+    padding: 24px !important;
+    min-height: calc(100vh - 120px) !important;
+    overflow: visible !important;
+    margin: 0 !important;
+}
+
+/* Inner vertical block inside columns - also style */
+[data-testid="column"]>div[data-testid="stVerticalBlock"],
+[data-testid="stVerticalBlock"] {
+    background-color: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+}
+
+/* === BUTTONS === */
+.stButton>button {
+    background: white !important;
+    border: 1px solid #dadce0 !important;
+    border-radius: 20px !important;
+    color: #202124 !important;
+    font-size: 14px !important;
+    padding: 10px 24px !important;
+    font-weight: 500 !important;
+    transition: all 0.15s ease !important;
+    box-shadow: none !important;
+}
+
+.stButton>button:hover {
+    background: #f8f9fa !important;
+    box-shadow: 0 1px 2px 0 rgba(60, 64, 67, 0.3), 0 1px 3px 1px rgba(60, 64, 67, 0.15) !important;
+    border-color: #d2d3d4 !important;
+}
+
+/* Primary Button - Blue */
+.stButton>button[kind="primary"],
+.stButton>button[data-testid="baseButton-primary"] {
+    background: #1a73e8 !important;
+    border: none !important;
+    color: white !important;
+}
+
+.stButton>button[kind="primary"]:hover,
+.stButton>button[data-testid="baseButton-primary"]:hover {
+    background: #1765cc !important;
+    box-shadow: 0 1px 3px 0 rgba(66, 133, 244, 0.3), 0 4px 8px 0 rgba(66, 133, 244, 0.15) !important;
+}
+
+/* === SETTINGS ICON BUTTON === */
+button[kind="secondary"][data-testid*="goto_settings"],
+button[data-testid*="goto_settings"] {
+    font-size: 22px !important;
+    padding: 8px !important;
+    border-radius: 50% !important;
+    width: 44px !important;
+    height: 44px !important;
+    min-width: 44px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    background: #ffffff !important;
+    border: 1px solid #dadce0 !important;
+}
+
+button[data-testid*="goto_settings"]:hover {
+    background: #f1f3f4 !important;
+    transform: rotate(45deg) !important;
+    transition: all 0.3s ease !important;
+}
+
+/* History Items (Left Column Buttons) */
+[data-testid="column"]:first-child .stButton>button:not([kind="primary"]) {
+    text-align: left !important;
+    justify-content: flex-start !important;
+    background-color: transparent !important;
+    border: none !important;
+    border-radius: 12px !important;
+    padding: 12px 16px !important;
+    font-size: 13px !important;
+    color: #3c4043 !important;
+}
+
+[data-testid="column"]:first-child .stButton>button:not([kind="primary"]):hover {
+    background-color: #e8f0fe !important;
+}
+
+/* Active Chat Indicator */
+[data-testid="column"]:first-child .stMarkdown strong {
+    display: block !important;
+    background-color: #e8f0fe !important;
+    padding: 12px 16px !important;
+    border-radius: 12px !important;
+    color: #1a73e8 !important;
+    border-left: 3px solid #1a73e8 !important;
+}
+
+/* === CARDS & CONTAINERS === */
+.element-container {
+    margin-bottom: 0.75rem !important;
+}
+
+/* === STAT CARDS === */
+.stat-card {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+    border: none !important;
+    border-radius: 16px !important;
+    padding: 16px 12px !important;
+    text-align: center !important;
+    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.25) !important;
+    min-width: 80px !important;
+}
+
+.stat-number {
+    font-size: 24px !important;
+    font-weight: 600 !important;
+    color: white !important;
+    margin: 0 !important;
+    line-height: 1.2 !important;
+}
+
+.stat-label {
+    font-size: 10px !important;
+    color: rgba(255, 255, 255, 0.9) !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.5px !important;
+    font-weight: 500 !important;
+    margin-top: 4px !important;
+    white-space: nowrap !important;
+}
+
+/* === EXPANDERS === */
+.streamlit-expanderHeader {
+    background: #f8f9fa !important;
+    border: 1px solid #e8eaed !important;
+    border-radius: 12px !important;
+    padding: 14px 18px !important;
+    font-size: 14px !important;
+    font-weight: 500 !important;
+    color: #202124 !important;
+    transition: all 0.15s !important;
+}
+
+.streamlit-expanderHeader:hover {
+    background: white !important;
+    box-shadow: 0 1px 2px rgba(60, 64, 67, 0.3) !important;
+}
+
+.streamlit-expanderContent {
+    border: 1px solid #e8eaed !important;
+    border-top: none !important;
+    border-radius: 0 0 12px 12px !important;
+    padding: 16px !important;
+    background: white !important;
+}
+
+/* Fix expander arrow - replace text with proper arrow */
+span[data-testid="stExpanderToggleIcon"] {
+    font-size: 0 !important;
+}
+
+span[data-testid="stExpanderToggleIcon"]::before {
+    content: "▸" !important;
+    font-size: 12px !important;
+    color: #5f6368 !important;
+}
+
+details[open] span[data-testid="stExpanderToggleIcon"]::before {
+    content: "▾" !important;
+}
+
+/* === CHECKBOXES === */
+.stCheckbox {
+    margin-bottom: 10px !important;
+}
+
+.stCheckbox label {
+    font-size: 14px !important;
+    color: #5f6368 !important;
+    font-weight: 400 !important;
+}
+
+/* === TEXT INPUTS === */
+.stTextInput input,
+.stTextArea textarea {
+    border: 1px solid #dadce0 !important;
+    border-radius: 8px !important;
+    padding: 10px 14px !important;
+    font-size: 14px !important;
+    transition: all 0.15s !important;
+}
+
+.stTextInput input:focus,
+.stTextArea textarea:focus {
+    border-color: #1a73e8 !important;
+    box-shadow: 0 0 0 3px rgba(26, 115, 232, 0.1) !important;
+}
+
+/* === CHAT MESSAGES === */
+.stChatMessage {
+    background: white !important;
+    border: 1px solid #e8eaed !important;
+    border-radius: 16px !important;
+    padding: 16px 20px !important;
+    margin-bottom: 12px !important;
+}
+
+.stChatMessage[data-testid="chat-message-user"] {
+    background: #e8f0fe !important;
+    border-color: #d2e3fc !important;
+}
+
+[data-testid="stChatMessageContent"] {
+    font-size: 14px !important;
+    line-height: 1.6 !important;
+}
+
+/* === CHAT INPUT === */
+.stChatInput {
+    border: 1px solid #dadce0 !important;
+    border-radius: 24px !important;
+    padding: 4px !important;
+}
+
+.stChatInput input {
+    border: none !important;
+    padding: 10px 16px !important;
+}
+
+.stChatInput>div:focus-within {
+    border-color: #4285f4 !important;
+    box-shadow: 0 0 0 2px rgba(66, 133, 244, 0.2) !important;
+}
+
+/* === ALERTS === */
+.stAlert {
+    border-radius: 12px !important;
+    border: none !important;
+    padding: 14px 18px !important;
+    font-size: 14px !important;
+}
+
+div[data-baseweb="notification"] {
+    border-radius: 12px !important;
+}
+
+.stAlert[data-baseweb="notification"][kind="info"] {
+    background: #e8f0fe !important;
+    color: #174ea6 !important;
+}
+
+.stAlert[data-baseweb="notification"][kind="success"] {
+    background: #e6f4ea !important;
+    color: #137333 !important;
+}
+
+/* === DIVIDER === */
+hr {
+    border: 0 !important;
+    border-top: 1px solid #e8eaed !important;
+    margin: 20px 0 !important;
+}
+
+/* === CAPTIONS === */
+.st-emotion-cache-16idsys p {
+    font-size: 12px !important;
+    color: #5f6368 !important;
+}
+
+caption,
+.stCaption {
+    font-size: 12px !important;
+    color: #5f6368 !important;
+}
+
+/* === TABS === */
+.stTabs [data-baseweb="tab-list"] {
+    gap: 8px !important;
+    border-bottom: 1px solid #e8eaed !important;
+    background-color: transparent !important;
+}
+
+.stTabs [data-baseweb="tab"] {
+    border-radius: 8px 8px 0 0 !important;
+    padding: 10px 16px !important;
+    font-size: 14px !important;
+    font-weight: 500 !important;
+    color: #5f6368 !important;
+}
+
+.stTabs [data-baseweb="tab"]:hover {
+    background: #f8f9fa !important;
+}
+
+.stTabs [data-baseweb="tab"][aria-selected="true"] {
+    color: #1a73e8 !important;
+    border-bottom: 2px solid #1a73e8 !important;
+}
+
+/* === FILE UPLOADER === */
+[data-testid="stFileUploader"] {
+    border: 2px dashed #dadce0 !important;
+    border-radius: 12px !important;
+    padding: 24px !important;
+    background: #f8f9fa !important;
+}
+
+[data-testid="stFileUploader"]:hover {
+    border-color: #1a73e8 !important;
+    background: white !important;
+}
+
+/* === SCROLLBAR === */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #dadce0;
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #bdc1c6;
+}
+
+/* === SPINNER === */
+.stSpinner>div {
+    border-top-color: #1a73e8 !important;
+}
+
+/* === MODAL/DIALOG === */
+[data-testid="stDialog"] {
+    border-radius: 20px !important;
+    padding: 8px !important;
+}
+
+[data-testid="stModal"]>div {
+    border-radius: 24px !important;
+    padding: 24px !important;
+}
+
+/* === HIDE STREAMLIT BRANDING (keep header for sidebar toggle) === */
+#MainMenu {
+    visibility: hidden !important;
+}
+
+footer {
+    visibility: hidden !important;
+}
+
+/* Keep header visible for sidebar toggle button >> */
+header[data-testid="stHeader"] {
+    background: transparent !important;
+}
