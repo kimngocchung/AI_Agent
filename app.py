@@ -1,4 +1,4 @@
-# File: app.py (NotebookLM-Style - Final Polish)
+# File: app.py (NotebookLM-Style với Source Filtering + Chat History + FIXED LAYOUT)
 
 import streamlit as st
 from langchain_core.messages import AIMessage
@@ -29,7 +29,7 @@ st.set_page_config(
     page_title="Cyber-Mentor AI",
     page_icon="🚀",
     layout="wide",
-    initial_sidebar_state="expanded" # Force expanded to ensure toggle is visible
+    initial_sidebar_state="auto"  # Tự động hiện sidebar khi có nhiều trang
 )
 
 # === LOAD CSS FROM FILE ===
@@ -44,41 +44,18 @@ def load_css():
 
 load_css()
 
-# === CRITICAL CSS FOR 3 COLUMNS (ensure it applies) ===
-st.markdown("""
-<style>
-/* Force 3 white cards with visible borders */
-[data-testid="column"] {
-    background-color: #ffffff !important;
-    border: 2px solid #dadce0 !important;
-    border-radius: 24px !important;
-    box-shadow: 0 2px 8px rgba(60, 64, 67, 0.15), 0 8px 16px rgba(60, 64, 67, 0.1) !important;
-    padding: 20px !important;
-    min-height: calc(100vh - 140px) !important;
-}
-
-/* Gray background */
-.stApp, [data-testid="stAppViewContainer"], .main {
-    background-color: #f0f4f9 !important;
-}
-
-/* Gap between columns */
-[data-testid="stHorizontalBlock"] {
-    gap: 16px !important;
-}
-</style>
-""", unsafe_allow_html=True)
-
 
 # === AGENT INIT ===
+AGENT_VERSION = "v3_source_filter"
+
 @st.cache_resource
-def load_agent():
+def load_agent(_version=AGENT_VERSION):
+    print(f"🔄 Loading agent version: {_version}")
     try:
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:
             st.error("Lỗi: Không tìm thấy GEMINI_API_KEY")
             st.stop()
-        
         agent = create_router()
         return agent
     except Exception as e:
@@ -129,6 +106,9 @@ if "conversations" not in st.session_state:
     else:
         st.session_state.conversations = {}
         st.session_state.active_chat_id = None
+
+if "stop_generation" not in st.session_state:
+    st.session_state.stop_generation = False
 
 if not st.session_state.conversations:
     first_chat_id = f"chat_{int(time.time())}"
@@ -222,14 +202,18 @@ def add_source_modal():
                 st.rerun()
 
 # ==============================================
-# MAIN LAYOUT: LEFT (HISTORY) | CENTER (CHAT) | RIGHT (SOURCES + QUESTIONS)
+# CONTAINER HEIGHT - Điều chỉnh theo màn hình
+# ==============================================
+CONTAINER_HEIGHT = 550  # Thay đổi giá trị này nếu cần (500-600)
+
+# ==============================================
+# MAIN LAYOUT
 # ==============================================
 
-# Create 3-column layout
 col_left, col_center, col_right = st.columns([2.5, 5, 2.5], gap="medium")
 
 # ==============================================
-# LEFT: CHAT HISTORY
+# LEFT: CHAT HISTORY (FIXED LAYOUT)
 # ==============================================
 with col_left:
     st.markdown("### Lịch sử")
@@ -245,55 +229,56 @@ with col_left:
         save_conversations()
         st.rerun()
     
-    st.markdown("")
-    
-    # List chats
-    sorted_chats = sorted(st.session_state.conversations.keys(), reverse=True)
-    for chat_id in sorted_chats[:10]:  # Max 10
-        chat_title = st.session_state.conversations[chat_id]["title"][:30]
-        
-        # Highlight active chat
-        if chat_id == st.session_state.active_chat_id:
-            st.markdown(f"**→ {chat_title}**")
-        else:
-            if st.button(chat_title, key=f"chat_{chat_id}", use_container_width=True):
-                st.session_state.active_chat_id = chat_id
-                st.rerun()
+    # === CONTAINER CỐ ĐỊNH CHO LỊCH SỬ ===
+    history_container = st.container(height=CONTAINER_HEIGHT)
+    with history_container:
+        sorted_chats = sorted(st.session_state.conversations.keys(), reverse=True)
+        for chat_id in sorted_chats[:15]:  # Tăng lên 15 để có thể scroll
+            chat_title = st.session_state.conversations[chat_id]["title"][:25]
+            is_active = chat_id == st.session_state.active_chat_id
+            
+            col_title, col_del = st.columns([4, 1])
+            
+            with col_title:
+                if is_active:
+                    st.markdown(f"**→ {chat_title}**")
+                else:
+                    if st.button(chat_title, key=f"chat_{chat_id}", use_container_width=True):
+                        st.session_state.active_chat_id = chat_id
+                        st.rerun()
+            
+            with col_del:
+                if st.button("🗑", key=f"del_{chat_id}", help="Xóa"):
+                    if len(st.session_state.conversations) > 1:
+                        del st.session_state.conversations[chat_id]
+                        if is_active:
+                            st.session_state.active_chat_id = list(st.session_state.conversations.keys())[0]
+                        save_conversations()
+                        st.rerun()
+                    else:
+                        st.toast("Không thể xóa!")
 
 # ==============================================
-# CENTER: CHAT
+# CENTER: CHAT (FIXED LAYOUT)
 # ==============================================
 with col_center:
+    # Header đơn giản - chỉ tiêu đề
     st.markdown("### Chat")
     
-    # Display messages
-    for message in get_current_chat_history():
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
+    # === CONTAINER CỐ ĐỊNH CHO MESSAGES ===
+    messages_container = st.container(height=CONTAINER_HEIGHT - 50)
+    with messages_container:
+        for message in get_current_chat_history():
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
     
-    # === INPUT HANDLING (ĐẶT TRƯỚC ĐỂ TRÁNH MẤT Ô INPUT) ===
-    # Chat input phải được render trước để Streamlit không bị mất nó
-    new_prompt = st.chat_input("Nhập câu hỏi...")
-    
-    # Xác định prompt_to_run từ nhiều nguồn
-    prompt_to_run = None
-    
-    # Nguồn 1: Từ suggested questions (click button)
-    if "chat_input_initial" in st.session_state and st.session_state.chat_input_initial:
-        prompt_to_run = st.session_state.chat_input_initial
-        st.session_state.chat_input_initial = None
-    # Nguồn 2: Từ chat input
-    elif new_prompt:
-        prompt_to_run = new_prompt
-    
-    # Recommendations (hiển thị sau messages)
+    # Recommendation box
     recommendation = get_current_recommendation()
     if recommendation:
         st.info(f"**Đề xuất:** {recommendation}")
         col1, col2 = st.columns(2)
         with col1:
             if st.button("Chấp nhận", use_container_width=True, key="accept_rec"):
-                # Lưu recommendation vào session để xử lý ở lần rerun tiếp theo
                 st.session_state.chat_input_initial = recommendation
                 set_current_recommendation(None)
                 st.rerun()
@@ -302,7 +287,45 @@ with col_center:
                 set_current_recommendation(None)
                 st.rerun()
     
-    # Process prompt
+    # === CHAT INPUT + BUTTONS Ở DƯỚI ===
+    col_input, col_undo, col_stop = st.columns([8, 1, 1])
+    
+    with col_input:
+        new_prompt = st.chat_input("Nhập câu hỏi...")
+    
+    with col_undo:
+        if st.button("↩️", key="undo_last", help="Undo - Xóa tin nhắn cuối", use_container_width=True):
+            history = get_current_chat_history()
+            if len(history) >= 2:
+                history.pop()
+                history.pop()
+                save_conversations()
+                st.rerun()
+            elif len(history) >= 1:
+                history.pop()
+                save_conversations()
+                st.rerun()
+    
+    with col_stop:
+        # Nút Stop - dừng xử lý
+        if st.button("⏹️", key="stop_gen", help="Stop - Dừng xử lý", use_container_width=True):
+            st.session_state.stop_generation = True
+            st.rerun()
+    
+    prompt_to_run = None
+    
+    if "chat_input_initial" in st.session_state and st.session_state.chat_input_initial:
+        prompt_to_run = st.session_state.chat_input_initial
+        st.session_state.chat_input_initial = None
+    elif new_prompt:
+        prompt_to_run = new_prompt
+    
+    # Kiểm tra nếu người dùng nhấn Stop
+    if st.session_state.get("stop_generation", False):
+        st.session_state.stop_generation = False
+        prompt_to_run = None
+        st.toast("⏹️ Đã dừng xử lý")
+    
     if prompt_to_run:
         if not get_current_chat_history():
             st.session_state.conversations[st.session_state.active_chat_id]["title"] = prompt_to_run[:30]
@@ -310,69 +333,72 @@ with col_center:
         get_current_chat_history().append({"role": "user", "content": prompt_to_run})
         save_conversations()
         
-        with st.chat_message("user"):
-            st.markdown(prompt_to_run)
-        
-        with st.chat_message("assistant"):
-            with st.spinner("Đang phân tích..."):
-                try:
-                    response = agent_chain.invoke({
-                        "user_input": prompt_to_run,
-                        "chat_history": get_current_chat_history()
-                    })
-                except Exception as e:
-                    st.error(f"Lỗi: {e}")
-                    st.stop()
+        with messages_container:
+            with st.chat_message("user"):
+                st.markdown(prompt_to_run)
             
-            # Parse response
-            full_response_text = ""
-            
-            if isinstance(response, dict) and 'actionable_intelligence' in response:
-                full_response_text = response.get('actionable_intelligence', '')
-                if hasattr(full_response_text, 'content'):
-                    full_response_text = full_response_text.content
-            elif isinstance(response, dict) and 'output' in response:
-                full_response_text = response['output']
-            elif isinstance(response, str):
-                full_response_text = response
-            else:
-                full_response_text = str(response)
-            
-            st.markdown(full_response_text)
-            
-            get_current_chat_history().append({"role": "assistant", "content": full_response_text})
-            save_conversations()
-            
-            # Parse recommendation
-            if "ĐỀ XUẤT:" in full_response_text:
-                try:
-                    parts = full_response_text.split("ĐỀ XUẤT:", 1)
-                    recommend_cmd = parts[1].strip().strip('`').strip()
-                    if recommend_cmd:
-                        set_current_recommendation(recommend_cmd)
-                        st.rerun()
-                except:
-                    pass
+            with st.chat_message("assistant"):
+                with st.spinner("Đang phân tích..."):
+                    try:
+                        # Kiểm tra Stop trước khi gọi API
+                        if st.session_state.get("stop_generation", False):
+                            st.session_state.stop_generation = False
+                            st.warning("⏹️ Đã dừng")
+                            st.stop()
+                        
+                        selected_sources = st.session_state.get("selected_sources", None)
+                        
+                        response = agent_chain.invoke({
+                            "user_input": prompt_to_run,
+                            "chat_history": get_current_chat_history(),
+                            "selected_sources": selected_sources
+                        })
+                    except Exception as e:
+                        st.error(f"Lỗi: {e}")
+                        st.stop()
+                
+                full_response_text = ""
+                
+                if isinstance(response, dict) and 'actionable_intelligence' in response:
+                    full_response_text = response.get('actionable_intelligence', '')
+                    if hasattr(full_response_text, 'content'):
+                        full_response_text = full_response_text.content
+                elif isinstance(response, dict) and 'output' in response:
+                    full_response_text = response['output']
+                elif isinstance(response, str):
+                    full_response_text = response
+                else:
+                    full_response_text = str(response)
+                
+                st.markdown(full_response_text)
+                
+                get_current_chat_history().append({"role": "assistant", "content": full_response_text})
+                save_conversations()
+                
+                if "ĐỀ XUẤT:" in full_response_text:
+                    try:
+                        parts = full_response_text.split("ĐỀ XUẤT:", 1)
+                        recommend_cmd = parts[1].strip().strip('`').strip()
+                        if recommend_cmd:
+                            set_current_recommendation(recommend_cmd)
+                            st.rerun()
+                    except:
+                        pass
 
 # ==============================================
-# RIGHT: SOURCES + SUGGESTED QUESTIONS
+# RIGHT: SOURCES (FIXED LAYOUT)
 # ==============================================
 with col_right:
     st.markdown("### Nguồn")
     
-    # Add button
     if st.button("Thêm nguồn", use_container_width=True, type="primary"):
         add_source_modal()
     
-    st.markdown("")
-    
-    # Stats
     sources = load_sources()
     source_count = len(sources)
     faiss_stats = get_faiss_stats("my_faiss_index")
     total_chunks = faiss_stats.get("doc_count", 0)
     
-    # Stats in horizontal layout
     st.markdown(f"""
     <div style="display: flex; gap: 12px; margin-bottom: 16px;">
         <div class="stat-card" style="flex: 1;">
@@ -386,59 +412,56 @@ with col_right:
     </div>
     """, unsafe_allow_html=True)
     
-    st.markdown("---")
-    
-    # Source list
-    if sources:
-        select_all = st.checkbox("Chọn tất cả", value=True)
-        st.markdown("")
-        
-        selected_sources = []
-        
-        for idx, source in enumerate(sources):
-            with st.expander(f"{source['name'][:35]}...", expanded=False):
-                is_selected = st.checkbox(
-                    "Dùng nguồn này",
-                    value=select_all,
-                    key=f"src_{idx}",
-                    disabled=select_all
-                )
-                
-                if select_all or is_selected:
-                    selected_sources.append(source)
-                
-                st.caption(f"Loại: {source['type'].upper()} • Chunks: {source.get('chunks', 0)}")
-                
-                if source.get('summary'):
-                    st.markdown("**Tóm tắt:**")
-                    st.info(source['summary'][:150] + "..." if len(source.get('summary', '')) > 150 else source.get('summary', ''))
-                
-                st.markdown("")
-                if st.button("Xóa", key=f"del_{idx}", use_container_width=True):
-                    delete_source(source['name'])
-                    st.rerun()
-        
-        st.session_state.selected_sources = selected_sources
-        
-        # === SUGGESTED QUESTIONS (DỰA VÀO NGUỒN ĐÃ CHỌN) ===
-        st.markdown("---")
-        st.markdown("### Câu hỏi gợi ý")
-        
-        if selected_sources:
-            # Collect questions from selected sources only
-            all_questions = []
-            for source in selected_sources:
-                if source.get('suggested_questions'):
-                    for q in source['suggested_questions']:
-                        all_questions.append(q)
+    # === CONTAINER CỐ ĐỊNH CHO NGUỒN ===
+    sources_container = st.container(height=CONTAINER_HEIGHT - 80)  # Trừ đi cho header + stats
+    with sources_container:
+        if sources:
+            select_all = st.checkbox("Chọn tất cả", value=True)
+            st.markdown("")
             
-            # Show max 5 questions
-            for idx, q in enumerate(all_questions[:5]):
-                if st.button(q[:60] + "..." if len(q) > 60 else q, key=f"quest_{idx}", use_container_width=True):
-                    st.session_state.chat_input_initial = q
-                    st.rerun()
+            selected_sources = []
+            
+            for idx, source in enumerate(sources):
+                with st.expander(f"{source['name'][:35]}...", expanded=False):
+                    is_selected = st.checkbox(
+                        "Dùng nguồn này",
+                        value=select_all,
+                        key=f"src_{idx}",
+                        disabled=select_all
+                    )
+                    
+                    if select_all or is_selected:
+                        selected_sources.append(source)
+                    
+                    st.caption(f"Loại: {source['type'].upper()} • Chunks: {source.get('chunks', 0)}")
+                    
+                    if source.get('summary'):
+                        st.markdown("**Tóm tắt:**")
+                        st.info(source['summary'][:150] + "..." if len(source.get('summary', '')) > 150 else source.get('summary', ''))
+                    
+                    st.markdown("")
+                    if st.button("Xóa", key=f"delsrc_{idx}", use_container_width=True):
+                        delete_source(source['name'])
+                        st.rerun()
+            
+            st.session_state.selected_sources = selected_sources
+            
+            st.markdown("---")
+            st.markdown("### Câu hỏi gợi ý")
+            
+            if selected_sources:
+                all_questions = []
+                for source in selected_sources:
+                    if source.get('suggested_questions'):
+                        for q in source['suggested_questions']:
+                            all_questions.append(q)
+                
+                for idx, q in enumerate(all_questions[:5]):
+                    if st.button(q[:60] + "..." if len(q) > 60 else q, key=f"quest_{idx}", use_container_width=True):
+                        st.session_state.chat_input_initial = q
+                        st.rerun()
+            else:
+                st.caption("Chọn nguồn để xem câu hỏi")
         else:
-            st.caption("Chọn nguồn để xem câu hỏi")
-    else:
-        st.info("Chưa có nguồn")
-        st.session_state.selected_sources = []
+            st.info("Chưa có nguồn")
+            st.session_state.selected_sources = []

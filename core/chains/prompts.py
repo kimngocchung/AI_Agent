@@ -1,26 +1,32 @@
-# File: core/chains/prompts.py (BẢN "HỎI NGƯỢC LẠI" TOÀN DIỆN)
+# File: core/chains/prompts.py (BẢN CẢI TIẾN - CONTEXT-AWARE ROUTER)
 
 from langchain_core.prompts import PromptTemplate
 
 # ==============================================================================
-# 1. ROUTER PROMPT (Bộ điều hướng)
+# 1. ROUTER PROMPT (Bộ điều hướng) - HỖ TRỢ CHAT HISTORY
 # ==============================================================================
-router_template = """Phân loại yêu cầu sau đây của người dùng thành MỘT trong các loại sau:
+router_template = """Bạn là bộ phân loại yêu cầu. Dựa vào **lịch sử hội thoại** và **câu hỏi hiện tại**, hãy phân loại thành MỘT trong các loại sau:
 
-1.  **generate_full_plan**: Nếu người dùng yêu cầu một kế hoạch pentest tổng thể, chiến lược đánh giá bảo mật.
-2.  **execute_pentest_tool**: Nếu người dùng yêu cầu **thực thi** (run, scan, execute, check, chạy, quét) một công cụ pentest cụ thể (Nmap, SQLMap) HOẶC yêu cầu chạy Burp Scan.
-3.  **specific_vulnerability_info**: Nếu người dùng hỏi về thông tin chi tiết, cách kiểm thử, cách khai thác một lỗ hổng cụ thể.
-4.  **tool_usage**: Nếu người dùng hỏi về cách sử dụng, các lệnh, cờ (flags) của công cụ.
+1.  **generate_full_plan**: CHỈ khi người dùng yêu cầu một kế hoạch pentest TỔNG THỂ cho một mục tiêu cụ thể mới (ví dụ: "lên kế hoạch pentest cho website X").
+
+2.  **execute_pentest_tool**: Nếu người dùng yêu cầu **thực thi** (run, scan, execute, chạy, quét) một công cụ pentest cụ thể (Nmap, SQLMap, Burp).
+
+3.  **specific_vulnerability_info**: Nếu người dùng:
+    - Hỏi về lỗ hổng/CVE cụ thể hoặc cách khai thác
+    - Câu hỏi tiếp nối liên quan đến lỗ hổng/bảo mật đã thảo luận trước đó
+    - Yêu cầu giải thích thêm, hướng dẫn chi tiết về chủ đề bảo mật
+
+4.  **tool_usage**: Nếu người dùng hỏi về cách sử dụng công cụ.
+
+**QUAN TRỌNG:** Nếu câu hỏi hiện tại là tiếp nối (như "hướng dẫn tôi", "giải thích thêm", "mô tả chi tiết"), hãy xem lịch sử để xác định chủ đề đang được thảo luận và phân loại phù hợp.
 
 Chỉ trả về TÊN của loại yêu cầu, không thêm bất kỳ văn bản nào khác.
 
-Ví dụ:
-Yêu cầu: "Lên kế hoạch pentest web" -> generate_full_plan
-Yêu cầu: "Chạy nmap quét scanme.nmap.org" -> execute_pentest_tool
-Yêu cầu: "SQL Injection là gì" -> specific_vulnerability_info
-Yêu cầu: "Cách dùng sqlmap" -> tool_usage
+**Lịch sử hội thoại gần đây:**
+{chat_history}
 
-Yêu cầu: {user_input}
+**Câu hỏi hiện tại:** {user_input}
+
 Phân loại:"""
 router_prompt = PromptTemplate.from_template(router_template)
 
@@ -77,21 +83,59 @@ Yêu cầu của người dùng: {input}
 
 
 # ==============================================================================
-# 3. RAG PROMPT (Luồng 1 - Hỏi đáp Lý thuyết)
+# 3. RAG PROMPT (Luồng 1 - Hỏi đáp Lý thuyết) - FORMAT CHUYÊN NGHIỆP
 # ==============================================================================
-# Cập nhật: Thêm logic kiểm tra câu hỏi mơ hồ
-rag_direct_template = """**Nhiệm vụ:** Bạn là chuyên gia an ninh mạng. Hãy trả lời câu hỏi của người dùng dựa trên "Bối cảnh RAG".
+rag_direct_template = """**Nhiệm vụ:** Bạn là chuyên gia an ninh mạng. Hãy trả lời câu hỏi của người dùng dựa trên "Bối cảnh RAG" và "Lịch sử hội thoại".
 
 **QUY TẮC TRẢ LỜI:**
-1.  **Kiểm tra câu hỏi:** Nếu câu hỏi quá ngắn hoặc không rõ ràng (ví dụ: "hack thế nào?", "lỗi gì đây?"), hãy **HỎI NGƯỜI DÙNG** cung cấp thêm ngữ cảnh.
-2.  **Trả lời:** Nếu câu hỏi rõ ràng, hãy dùng thông tin từ Bối cảnh RAG để trả lời chi tiết.
+1.  **Tham khảo lịch sử:** Nếu câu hỏi hiện tại có liên quan đến câu hỏi trước (ví dụ: "cái này", "lỗ hổng đó"), hãy xem lịch sử để hiểu ngữ cảnh.
+2.  **Kiểm tra câu hỏi:** Nếu câu hỏi quá ngắn hoặc không rõ ràng VÀ không có ngữ cảnh từ lịch sử, hãy **HỎI NGƯỜI DÙNG** cung cấp thêm ngữ cảnh.
+3.  **Trả lời chi tiết:** Nếu câu hỏi rõ ràng, hãy dùng thông tin từ Bối cảnh RAG để trả lời THẬT CHI TIẾT.
 
-**Yêu cầu của người dùng:** {user_input}
+**ĐỊNH DẠNG CÂU TRẢ LỜI (BẮT BUỘC):**
+- Sử dụng **Markdown** để format đẹp
+- Chia thành các sections với headers đánh số: **1.**, **2.**, **3.**...
+- Code, commands, payloads phải trong code block với ngôn ngữ (```python, ```bash, ```json, ```http)
+- Dùng **bold** cho từ khóa quan trọng
+- Dùng bullet points • cho danh sách
+- Nếu có nhiều bước, đánh số rõ ràng
+- Nếu có URL/endpoint, format trong code block
+
+**VÍ DỤ FORMAT TỐT:**
+
+## 1. Mô tả lỗ hổng
+
+**CVE-XXXX-XXXXX** là lỗ hổng RCE ảnh hưởng đến...
+
+## 2. Cách khai thác
+
+**Bước 1:** Chuẩn bị payload
+```python
+payload = "..."
+```
+
+**Bước 2:** Gửi request
+```http
+POST /api/endpoint HTTP/1.1
+Host: target.com
+```
+
+## 3. Khuyến nghị
+
+• Cập nhật lên phiên bản mới nhất
+• Áp dụng WAF rules
+
+---
+
+**Lịch sử hội thoại gần đây:**
+{chat_history}
+
+**Yêu cầu hiện tại của người dùng:** {user_input}
 
 **Bối cảnh RAG:**
 {rag_context}
 
-**Câu trả lời (hoặc Câu hỏi làm rõ):**
+**Câu trả lời (định dạng Markdown chuyên nghiệp):**
 """
 rag_direct_prompt = PromptTemplate.from_template(rag_direct_template)
 
