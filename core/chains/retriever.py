@@ -121,6 +121,13 @@ def source_matches(doc_source: str, selected_names: list) -> bool:
     return False
 
 
+def extract_cve_from_query(query: str) -> list:
+    """Trích xuất CVE IDs từ query"""
+    import re
+    cve_pattern = re.compile(r'CVE-\d{4}-\d{4,}', re.IGNORECASE)
+    return cve_pattern.findall(query.upper())
+
+
 def retrieve_docs_with_filter(input_data) -> list:
     """
     Retrieve documents với filter theo selected sources.
@@ -141,11 +148,40 @@ def retrieve_docs_with_filter(input_data) -> list:
     
     print(f"--- [RAG] Searching for: {query[:50]}... ---")
     
-    # Lấy nhiều hơn nếu cần filter
-    k_fetch = 30 if selected_sources else 5
-    docs = vs.similarity_search(query, k=k_fetch)
+    # 1. TÌM CVE CHÍNH XÁC TRƯỚC (nếu query có CVE ID)
+    cve_ids = extract_cve_from_query(query)
+    cve_matched_docs = []
     
-    # Filter theo selected sources nếu có
+    if cve_ids:
+        print(f"--- [RAG] Detected CVE IDs: {cve_ids} ---")
+        
+        # Lấy tất cả documents và tìm exact match CVE
+        all_docs = vs.similarity_search(query, k=100)  # Lấy nhiều để tìm CVE
+        
+        for doc in all_docs:
+            doc_source = doc.metadata.get('source', '').upper()
+            doc_content = doc.page_content.upper()[:500]
+            
+            for cve_id in cve_ids:
+                if cve_id in doc_source or cve_id in doc_content:
+                    if doc not in cve_matched_docs:
+                        cve_matched_docs.append(doc)
+                        print(f"    🎯 CVE MATCH: {doc.metadata.get('source', '')[:70]}")
+        
+        if cve_matched_docs:
+            print(f"--- [RAG] Found {len(cve_matched_docs)} docs matching CVE IDs ---")
+    
+    # 2. SIMILARITY SEARCH FALLBACK
+    k_fetch = 30 if selected_sources else 10
+    similarity_docs = vs.similarity_search(query, k=k_fetch)
+    
+    # 3. MERGE RESULTS: CVE matches first, then similarity
+    docs = cve_matched_docs.copy()
+    for doc in similarity_docs:
+        if doc not in docs:
+            docs.append(doc)
+    
+    # 4. Filter theo selected sources nếu có
     if selected_sources and len(selected_sources) > 0:
         selected_names = [s.get('name', '') for s in selected_sources]
         
