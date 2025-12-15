@@ -1,542 +1,307 @@
-/* ============================================
-   CYBER-MENTOR AI - FIXED LAYOUT STYLE V2
-   Tất cả 3 cột đều có scroll riêng
-   Trang web đứng yên hoàn toàn
-   ============================================ */
+/* =================================================================
+   NOTEBOOKLM CLONE - GOOGLE MATERIAL STYLE 3
+   File: assets/style.css
+   ================================================================= */
 
-@import url('https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;600&display=swap');
+/* Import Font Google */
+@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Roboto+Serif:wght@400;500&display=swap');
 
-/* === CRITICAL: PREVENT PAGE SCROLLING === */
-html,
-body {
-    overflow: hidden !important;
-    height: 100vh !important;
-    max-height: 100vh !important;
-    margin: 0 !important;
-    padding: 0 !important;
-    position: fixed !important;
-    width: 100% !important;
-    top: 0 !important;
-    left: 0 !important;
-    background-color: #f0f4f9 !important;
-}
-
+/* === TỔNG QUAN (APP BACKGROUND) === */
 .stApp {
-    overflow: hidden !important;
-    height: 100vh !important;
-    max-height: 100vh !important;
-    position: fixed !important;
-    width: 100% !important;
-    top: 0 !important;
-    left: 0 !important;
-    background-color: #f0f4f9 !important;
+    background-color: #F0F4F9 !important;
+    /* Nền xám Google */
+    font-family: 'Roboto', sans-serif !important;
 }
 
-[data-testid="stAppViewContainer"],
-[data-testid="stAppViewContainer"]>.main,
-.main {
-    overflow: hidden !important;
-    height: 100vh !important;
-    max-height: 100vh !important;
-    background-color: #f0f4f9 !important;
+/* Ẩn Header mặc định của Streamlit */
+header[data-testid="stHeader"] {
+    visibility: hidden;
+    height: 0 !important;
 }
 
-.main .block-container {
-    height: calc(100vh - 50px) !important;
-    max-height: calc(100vh - 50px) !important;
-    overflow: hidden !important;
-    padding: 0.8rem 1.5rem !important;
+.block-container {
+    padding-top: 1.5rem !important;
+    padding-bottom: 2rem !important;
     max-width: 100% !important;
-    background-color: #f0f4f9 !important;
 }
 
-/* === FONT === */
-* {
-    font-family: 'Google Sans', 'Segoe UI', system-ui, -apple-system, sans-serif;
+/* === CARD UI LAYOUT (QUAN TRỌNG NHẤT) === */
+/* Chỉ áp dụng style Card trắng cho 3 cột chính của Layout */
+[data-testid="stMainBlockContainer"]>div:nth-child(1)>[data-testid="stHorizontalBlock"]>[data-testid="stColumn"] {
+    background-color: white;
+    border-radius: 24px;
+    padding: 24px !important;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+    border: 1px solid #E5E7EB;
+    /* Đảm bảo chiều cao bằng nhau nếu cần, hoặc để tự nhiên */
+    min-height: 85vh;
 }
 
-/* === HEADINGS === */
-h1,
-h2,
-h3 {
-    font-weight: 400 !important;
-    color: #202124 !important;
-}
-
-h3,
-.stMarkdown h3 {
-    font-size: 16px !important;
-    font-weight: 500 !important;
-    padding-bottom: 10px !important;
-    margin-bottom: 8px !important;
-    margin-top: 0 !important;
-    border-bottom: 1px solid #e8eaed !important;
-    letter-spacing: -0.2px !important;
-}
-
-/* =============================================
-   3 COLUMNS LAYOUT - ALL FIXED HEIGHT
-   ============================================= */
-
-[data-testid="stHorizontalBlock"] {
-    gap: 16px !important;
-    height: calc(100vh - 70px) !important;
-    max-height: calc(100vh - 70px) !important;
-    align-items: stretch !important;
-    overflow: hidden !important;
-}
-
-/* === ALL COLUMNS - Card style === */
-[data-testid="column"] {
-    background-color: #ffffff !important;
-    border: 1px solid #dadce0 !important;
-    border-radius: 24px !important;
-    box-shadow: 0 2px 8px rgba(60, 64, 67, 0.1) !important;
-    padding: 16px 20px !important;
-    height: calc(100vh - 90px) !important;
-    max-height: calc(100vh - 90px) !important;
-    overflow: hidden !important;
-    display: flex !important;
-    flex-direction: column !important;
-}
-
-/* =============================================
-   STREAMLIT CONTAINER (height=...) STYLING
-   st.container(height=X) tạo ra div với style riêng
-   ============================================= */
-
-/* Container có height cố định từ Streamlit */
-[data-testid="stVerticalBlockBorderWrapper"] {
-    flex: 1 !important;
-    min-height: 0 !important;
-    overflow: hidden !important;
-}
-
-[data-testid="stVerticalBlockBorderWrapper"]>div {
-    height: 100% !important;
-    overflow-y: auto !important;
-    overflow-x: hidden !important;
-}
-
-/* Style cho container có border (khi dùng height) */
-[data-testid="stVerticalBlockBorderWrapper"][data-testid*="block"] {
-    border: 1px solid #e8eaed !important;
-    border-radius: 12px !important;
-    background: #fafbfc !important;
-}
-
-/* === CUSTOM SCROLLBARS === */
-[data-testid="stVerticalBlockBorderWrapper"]>div::-webkit-scrollbar,
-[data-testid="column"]::-webkit-scrollbar {
-    width: 6px;
-}
-
-[data-testid="stVerticalBlockBorderWrapper"]>div::-webkit-scrollbar-track,
-[data-testid="column"]::-webkit-scrollbar-track {
-    background: transparent;
-    margin: 8px 0;
-}
-
-[data-testid="stVerticalBlockBorderWrapper"]>div::-webkit-scrollbar-thumb,
-[data-testid="column"]::-webkit-scrollbar-thumb {
-    background: #dadce0;
-    border-radius: 3px;
-}
-
-[data-testid="stVerticalBlockBorderWrapper"]>div::-webkit-scrollbar-thumb:hover,
-[data-testid="column"]::-webkit-scrollbar-thumb:hover {
-    background: #bdc1c6;
-}
-
-/* Firefox scrollbar */
-[data-testid="stVerticalBlockBorderWrapper"]>div {
-    scrollbar-width: thin !important;
-    scrollbar-color: #dadce0 transparent !important;
-}
-
-/* =============================================
-   BUTTONS
-   ============================================= */
-
-.stButton>button {
-    border: 1px solid #dadce0 !important;
-    border-radius: 20px !important;
-    color: #202124 !important;
-    font-size: 14px !important;
-    padding: 10px 24px !important;
-    font-weight: 500 !important;
-    transition: all 0.15s ease !important;
+/* RESET style cho các cột con bên trong (để nút bấm/input không bị biến thành card) */
+[data-testid="stColumn"] [data-testid="stColumn"] {
+    background-color: transparent !important;
     box-shadow: none !important;
-    background: white !important;
-}
-
-.stButton>button:hover {
-    background: #f8f9fa !important;
-    box-shadow: 0 1px 2px 0 rgba(60, 64, 67, 0.3) !important;
-    border-color: #d2d3d4 !important;
-}
-
-/* Primary Button */
-.stButton>button[kind="primary"],
-.stButton>button[data-testid="baseButton-primary"] {
-    background: #1a73e8 !important;
     border: none !important;
-    color: white !important;
+    padding: 0 !important;
+    min-height: auto !important;
 }
 
-.stButton>button[kind="primary"]:hover {
-    background: #1765cc !important;
-    box-shadow: 0 1px 3px 0 rgba(66, 133, 244, 0.3) !important;
+/* === HEADERS === */
+.section-header {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: #1F1F1F;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
 }
 
-/* History Items - Left Column */
-[data-testid="column"]:first-child .stButton>button:not([kind="primary"]) {
-    text-align: left !important;
-    justify-content: flex-start !important;
+/* === CHAT MESSAGES === */
+.stChatMessage {
     background-color: transparent !important;
     border: none !important;
-    border-radius: 12px !important;
-    padding: 12px 16px !important;
-    font-size: 13px !important;
-    color: #3c4043 !important;
+    padding: 0px 0 !important;
 }
 
-[data-testid="column"]:first-child .stButton>button:not([kind="primary"]):hover {
-    background-color: #e8f0fe !important;
+div[data-testid="stChatMessageContent"] {
+    border-radius: 18px !important;
+    padding: 12px 18px !important;
+    font-size: 0.95rem !important;
+    line-height: 1.6 !important;
+    box-shadow: none !important;
 }
 
-/* Active Chat Indicator */
-[data-testid="column"]:first-child .stMarkdown strong {
-    display: block !important;
-    background-color: #e8f0fe !important;
-    padding: 12px 16px !important;
-    border-radius: 12px !important;
-    color: #1a73e8 !important;
-    border-left: 3px solid #1a73e8 !important;
+/* User Message: Xanh nhạt */
+div[data-testid="stChatMessage"]:nth-child(odd) div[data-testid="stChatMessageContent"] {
+    background-color: #E8F0FE !important;
+    color: #174EA6 !important;
 }
 
-/* =============================================
-   STAT CARDS
-   ============================================= */
-
-.stat-card {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
-    border: none !important;
-    border-radius: 16px !important;
-    padding: 14px 10px !important;
-    text-align: center !important;
-    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.25) !important;
-    min-width: 70px !important;
+/* Bot Message: Xám nhạt */
+div[data-testid="stChatMessage"]:nth-child(even) div[data-testid="stChatMessageContent"] {
+    background-color: #F1F3F4 !important;
+    color: #1F1F1F !important;
 }
 
-.stat-number {
-    font-size: 22px !important;
-    font-weight: 600 !important;
-    color: white !important;
-    margin: 0 !important;
-    line-height: 1.2 !important;
+/* === FIX MARKDOWN RENDERING IN CHAT === */
+/* Đảm bảo các list items xuống dòng đúng */
+div[data-testid="stChatMessageContent"] ul,
+div[data-testid="stChatMessageContent"] ol {
+    padding-left: 24px !important;
+    margin: 12px 0 !important;
+    list-style-position: outside !important;
 }
 
-.stat-label {
-    font-size: 9px !important;
-    color: rgba(255, 255, 255, 0.9) !important;
-    text-transform: uppercase !important;
-    letter-spacing: 0.5px !important;
-    font-weight: 500 !important;
-    margin-top: 4px !important;
-    white-space: nowrap !important;
-}
-
-/* =============================================
-   EXPANDERS
-   ============================================= */
-
-.streamlit-expanderHeader {
-    background: #f8f9fa !important;
-    border: 1px solid #e8eaed !important;
-    border-radius: 12px !important;
-    padding: 12px 16px !important;
-    font-size: 13px !important;
-    font-weight: 500 !important;
-    color: #202124 !important;
-}
-
-.streamlit-expanderHeader:hover {
-    background: white !important;
-    box-shadow: 0 1px 2px rgba(60, 64, 67, 0.3) !important;
-}
-
-.streamlit-expanderContent {
-    border: 1px solid #e8eaed !important;
-    border-top: none !important;
-    border-radius: 0 0 12px 12px !important;
-    padding: 14px !important;
-    background: white !important;
-}
-
-/* =============================================
-   CHECKBOXES
-   ============================================= */
-
-.stCheckbox {
+div[data-testid="stChatMessageContent"] li {
+    display: list-item !important;
     margin-bottom: 8px !important;
+    line-height: 1.6 !important;
+    padding-left: 4px !important;
 }
 
-.stCheckbox label {
-    font-size: 13px !important;
-    color: #3c4043 !important;
+/* === NESTED LISTS - Thụt vào cho các mục con === */
+div[data-testid="stChatMessageContent"] ul ul,
+div[data-testid="stChatMessageContent"] ol ol,
+div[data-testid="stChatMessageContent"] ul ol,
+div[data-testid="stChatMessageContent"] ol ul {
+    padding-left: 28px !important;
+    margin: 8px 0 8px 0 !important;
 }
 
-/* =============================================
-   ALERTS
-   ============================================= */
-
-.stAlert {
-    border-radius: 12px !important;
-    padding: 14px 18px !important;
-    border: none !important;
+div[data-testid="stChatMessageContent"] li li,
+div[data-testid="stChatMessageContent"] li>ul>li,
+div[data-testid="stChatMessageContent"] li>ol>li {
+    margin-left: 0 !important;
+    font-size: 0.95em !important;
 }
 
-.stInfo {
-    background-color: #e8f0fe !important;
-    border: 1px solid #1a73e8 !important;
+/* Level 3 nested - thụt sâu hơn nữa */
+div[data-testid="stChatMessageContent"] ul ul ul,
+div[data-testid="stChatMessageContent"] ol ol ol {
+    padding-left: 24px !important;
 }
 
-/* =============================================
-   CHAT MESSAGES
-   ============================================= */
-
-.stChatMessage {
-    padding: 14px !important;
-    border-radius: 16px !important;
+/* Fix cho bullet points dùng ký tự * hoặc - ở đầu dòng */
+div[data-testid="stChatMessageContent"] p {
+    white-space: pre-wrap !important;
     margin-bottom: 10px !important;
 }
 
-[data-testid="stChatMessageContent"] {
-    font-size: 14px !important;
-    line-height: 1.6 !important;
+/* Text bắt đầu bằng * hoặc - cần được thụt vào */
+div[data-testid="stChatMessageContent"] {
+    text-indent: 0 !important;
 }
 
-/* =============================================
-   CHAT INPUT + ACTION BUTTONS
-   ============================================= */
-
-[data-testid="stChatInput"] {
-    margin-top: 0 !important;
+/* Headers trong chat */
+div[data-testid="stChatMessageContent"] h1,
+div[data-testid="stChatMessageContent"] h2,
+div[data-testid="stChatMessageContent"] h3,
+div[data-testid="stChatMessageContent"] h4 {
+    margin-top: 16px !important;
+    margin-bottom: 8px !important;
+    font-weight: 600 !important;
 }
 
-.stChatInput {
-    border: 1px solid #dadce0 !important;
-    border-radius: 24px !important;
-    padding: 8px 16px !important;
+div[data-testid="stChatMessageContent"] h2 {
+    font-size: 1.2rem !important;
+    color: #174EA6 !important;
+    border-bottom: 1px solid #E5E7EB !important;
+    padding-bottom: 4px !important;
 }
 
-.stChatInput:focus-within {
-    border-color: #1a73e8 !important;
-    box-shadow: 0 0 0 2px rgba(26, 115, 232, 0.2) !important;
-}
-
-.stChatInput textarea {
-    font-size: 14px !important;
-}
-
-/* Row chứa chat input và buttons - căn giữa vertical */
-[data-testid="column"]:nth-child(2) [data-testid="stHorizontalBlock"]:last-of-type {
-    align-items: flex-end !important;
-    gap: 8px !important;
-    padding-bottom: 0 !important;
-}
-
-/* Wrapper của button */
-[data-testid="column"]:nth-child(2) [data-testid="stHorizontalBlock"]:last-of-type [data-testid="column"] {
-    display: flex !important;
-    align-items: flex-end !important;
-    padding-bottom: 0 !important;
-}
-
-/* Nút Undo và Stop bên cạnh chat input */
-[data-testid="column"]:nth-child(2) [data-testid="stHorizontalBlock"]:last-of-type .stButton {
-    margin-bottom: 0 !important;
-}
-
-[data-testid="column"]:nth-child(2) [data-testid="stHorizontalBlock"]:last-of-type .stButton>button {
-    width: 52px !important;
-    height: 52px !important;
-    min-height: 52px !important;
-    padding: 0 !important;
-    border-radius: 24px !important;
-    font-size: 20px !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    background: #f8f9fa !important;
-    border: 1px solid #dadce0 !important;
-    transition: all 0.2s ease !important;
-    margin: 0 !important;
-}
-
-[data-testid="column"]:nth-child(2) [data-testid="stHorizontalBlock"]:last-of-type .stButton>button:hover {
-    background: #e8f0fe !important;
-    border-color: #1a73e8 !important;
-}
-
-/* =============================================
-   TEXT INPUT
-   ============================================= */
-
-.stTextInput input {
-    border: 1px solid #dadce0 !important;
-    border-radius: 12px !important;
-    padding: 12px 16px !important;
-    font-size: 14px !important;
-}
-
-.stTextInput input:focus {
-    border-color: #1a73e8 !important;
-    box-shadow: 0 0 0 2px rgba(26, 115, 232, 0.2) !important;
-}
-
-/* =============================================
-   FILE UPLOADER
-   ============================================= */
-
-.stFileUploader {
-    border: 2px dashed #dadce0 !important;
-    border-radius: 16px !important;
-    padding: 20px !important;
-    background: #fafafa !important;
-}
-
-.stFileUploader:hover {
-    border-color: #1a73e8 !important;
-    background: #f8fbff !important;
-}
-
-/* =============================================
-   CAPTIONS
-   ============================================= */
-
-caption,
-.stCaption {
-    font-size: 11px !important;
-    color: #5f6368 !important;
-}
-
-/* =============================================
-   SPINNER
-   ============================================= */
-
-.stSpinner>div {
-    border-top-color: #1a73e8 !important;
-}
-
-/* =============================================
-   TABS
-   ============================================= */
-
-.stTabs [data-baseweb="tab-list"] {
-    gap: 8px !important;
-    background: transparent !important;
-}
-
-.stTabs [data-baseweb="tab"] {
-    border-radius: 20px !important;
-    padding: 8px 16px !important;
-    font-size: 13px !important;
-    font-weight: 500 !important;
-    color: #5f6368 !important;
-    background: transparent !important;
-    border: 1px solid transparent !important;
-}
-
-.stTabs [data-baseweb="tab"]:hover {
-    background: #f1f3f4 !important;
-}
-
-.stTabs [aria-selected="true"] {
-    background: #e8f0fe !important;
-    color: #1a73e8 !important;
-    border-color: transparent !important;
-}
-
-/* =============================================
-   MODAL/DIALOG
-   ============================================= */
-
-[data-testid="stDialog"],
-[data-testid="stModal"]>div {
-    border-radius: 24px !important;
-    padding: 24px !important;
-}
-
-/* =============================================
-   HIDE STREAMLIT BRANDING (giữ lại navigation)
-   ============================================= */
-
-#MainMenu {
-    visibility: hidden !important;
-}
-
-footer {
-    visibility: hidden !important;
-}
-
-header[data-testid="stHeader"] {
-    background: transparent !important;
-}
-
-/* Giữ lại sidebar toggle và page navigation */
-[data-testid="stSidebarCollapsedControl"] {
-    display: flex !important;
-}
-
-/* Style cho nút mở sidebar */
-[data-testid="stSidebarCollapsedControl"] button {
-    background: white !important;
-    border: 1px solid #dadce0 !important;
-    border-radius: 12px !important;
-    box-shadow: 0 2px 6px rgba(60, 64, 67, 0.15) !important;
-}
-
-[data-testid="stSidebarCollapsedControl"] button:hover {
-    background: #f8f9fa !important;
-    box-shadow: 0 2px 8px rgba(60, 64, 67, 0.25) !important;
-}
-
-/* =============================================
-   SIDEBAR (if used)
-   ============================================= */
-
-[data-testid="stSidebar"] {
-    background-color: #ffffff !important;
-    border-right: 1px solid #e0e0e0 !important;
-}
-
-/* =============================================
-   HR / DIVIDERS
-   ============================================= */
-
-hr {
+/* Code blocks */
+div[data-testid="stChatMessageContent"] pre {
+    background-color: #1E1E1E !important;
+    border-radius: 8px !important;
+    padding: 12px !important;
     margin: 12px 0 !important;
-    border: none !important;
-    border-top: 1px solid #e8eaed !important;
+    overflow-x: auto !important;
 }
 
-/* =============================================
-   MOBILE RESPONSIVE
-   ============================================= */
+div[data-testid="stChatMessageContent"] code {
+    font-family: 'Consolas', 'Monaco', monospace !important;
+    font-size: 0.9rem !important;
+}
 
-@media (max-width: 768px) {
-    [data-testid="stHorizontalBlock"] {
-        flex-direction: column !important;
-        height: auto !important;
-        overflow-y: auto !important;
-    }
+/* === STUDIO GRID (CỘT PHẢI) === */
+.studio-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 20px;
+}
 
-    [data-testid="column"] {
-        height: auto !important;
-        max-height: none !important;
-        margin-bottom: 16px !important;
-        min-height: 300px !important;
-    }
+.studio-item {
+    border-radius: 16px;
+    padding: 16px;
+    height: 100px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-decoration: none;
+    border: 1px solid transparent;
+}
+
+.studio-item:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+/* Màu Pastel */
+.bg-blue {
+    background-color: #E8F0FE;
+    color: #174EA6;
+}
+
+.bg-purple {
+    background-color: #F3E8FD;
+    color: #7C3AED;
+}
+
+.bg-green {
+    background-color: #E6F4EA;
+    color: #137333;
+}
+
+.bg-orange {
+    background-color: #FCE8E6;
+    color: #C5221F;
+}
+
+.s-icon {
+    font-size: 24px;
+}
+
+.s-label {
+    font-size: 13px;
+    font-weight: 600;
+}
+
+/* === STAT CARDS (CỘT TRÁI) === */
+.stat-row {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 15px;
+}
+
+.stat-card {
+    flex: 1;
+    background: #F9FAFB;
+    border: 1px solid #E5E7EB;
+    border-radius: 12px;
+    padding: 10px;
+    text-align: center;
+}
+
+.stat-number {
+    font-size: 20px;
+    font-weight: 700;
+    color: #4F46E5;
+}
+
+.stat-label {
+    font-size: 11px;
+    color: #6B7280;
+    margin-top: 2px;
+}
+
+/* === INPUTS & BUTTONS === */
+/* Chat Input nổi bật */
+.stChatInput textarea {
+    border-radius: 25px !important;
+    border: 1px solid #E0E0E0 !important;
+    padding: 12px 15px !important;
+    background: white !important;
+}
+
+.stChatInput textarea:focus {
+    border-color: #4F46E5 !important;
+    box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.1) !important;
+}
+
+/* Nút bấm bo tròn */
+.stButton>button {
+    border-radius: 12px !important;
+    height: auto !important;
+    padding: 0.5rem 1rem !important;
+}
+
+/* Primary button (Màu đen hoặc gradient tùy chọn, Google dùng đen hoặc xanh) */
+.stButton>button[kind="primary"] {
+    background-color: #1F1F1F !important;
+    color: white !important;
+    border: none !important;
+}
+
+/* === SCROLLBAR ĐẸP === */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #D1D5DB;
+    border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #9CA3AF;
+}
+
+/* === EXPANDER & OTHER WIDGETS === */
+.streamlit-expanderHeader {
+    border-radius: 10px !important;
+    background-color: transparent !important;
+    font-size: 14px !important;
+}
+
+.stCheckbox label span {
+    font-size: 14px !important;
 }
