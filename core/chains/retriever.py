@@ -23,11 +23,26 @@ def get_embeddings():
     if _embeddings is None:
         print("--- [RAG] Đang khởi tạo model embedding... ---")
         try:
-            _embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-            print("--- [RAG] Model embedding đã sẵn sàng! ---")
+            # Thử với cấu hình mặc định
+            _embeddings = HuggingFaceEmbeddings(
+                model_name="sentence-transformers/all-MiniLM-L6-v2",
+                model_kwargs={'device': 'cpu'},  # Force CPU để tránh lỗi meta tensor
+                encode_kwargs={'normalize_embeddings': True}
+            )
+            print("--- [RAG] Model embedding đã sẵn sàng! (CPU mode) ---")
         except Exception as e:
             print(f"--- [RAG Error] Lỗi khởi tạo embedding: {e} ---")
-            raise
+            print("--- [RAG] Thử fallback với model đơn giản hơn... ---")
+            try:
+                # Fallback: dùng model nhẹ hơn
+                _embeddings = HuggingFaceEmbeddings(
+                    model_name="sentence-transformers/paraphrase-MiniLM-L3-v2",
+                    model_kwargs={'device': 'cpu'}
+                )
+                print("--- [RAG] Fallback embedding thành công! ---")
+            except Exception as e2:
+                print(f"--- [RAG Error] Fallback cũng thất bại: {e2} ---")
+                raise
     return _embeddings
 
 def load_vectorstore(force_reload=False):
@@ -146,17 +161,13 @@ def retrieve_docs_with_filter(input_data) -> list:
     
     vs = load_vectorstore()
     
-    print(f"--- [RAG] Searching for: {query[:50]}... ---")
-    
     # 1. TÌM CVE CHÍNH XÁC TRƯỚC (nếu query có CVE ID)
     cve_ids = extract_cve_from_query(query)
     cve_matched_docs = []
     
     if cve_ids:
-        print(f"--- [RAG] Detected CVE IDs: {cve_ids} ---")
-        
         # Lấy tất cả documents và tìm exact match CVE
-        all_docs = vs.similarity_search(query, k=100)  # Lấy nhiều để tìm CVE
+        all_docs = vs.similarity_search(query, k=100)
         
         for doc in all_docs:
             doc_source = doc.metadata.get('source', '').upper()
@@ -166,10 +177,6 @@ def retrieve_docs_with_filter(input_data) -> list:
                 if cve_id in doc_source or cve_id in doc_content:
                     if doc not in cve_matched_docs:
                         cve_matched_docs.append(doc)
-                        print(f"    🎯 CVE MATCH: {doc.metadata.get('source', '')[:70]}")
-        
-        if cve_matched_docs:
-            print(f"--- [RAG] Found {len(cve_matched_docs)} docs matching CVE IDs ---")
     
     # 2. SIMILARITY SEARCH FALLBACK
     k_fetch = 30 if selected_sources else 10
@@ -182,46 +189,35 @@ def retrieve_docs_with_filter(input_data) -> list:
             docs.append(doc)
     
     # 4. Filter theo selected sources nếu có
+    filter_info = ""
     if selected_sources and len(selected_sources) > 0:
         selected_names = [s.get('name', '') for s in selected_sources]
+        filter_info = f" (lọc theo {len(selected_names)} nguồn)"
         
-        print(f"--- [RAG] Filtering by {len(selected_names)} selected sources ---")
-        for name in selected_names:
-            print(f"    ✓ Selected: {name[:60]}")
-        
-        # Filter docs
         filtered_docs = []
-        rejected_docs = []
-        
         for doc in docs:
             doc_source = doc.metadata.get('source', '')
-            
             if source_matches(doc_source, selected_names):
                 filtered_docs.append(doc)
-                print(f"    ✅ MATCH: {doc_source[:60]}")
-            else:
-                rejected_docs.append(doc_source)
         
-        # Log rejected docs for debugging
-        if rejected_docs:
-            print(f"    ❌ REJECTED {len(rejected_docs)} docs:")
-            for rej in rejected_docs[:3]:
-                print(f"       - {rej[:60]}")
+        docs = filtered_docs  # Lấy TẤT CẢ chunks của nguồn đã chọn
         
-        docs = filtered_docs[:5]  # Lấy top 5 sau khi filter
-        print(f"--- [RAG] After filter: {len(docs)} documents ---")
-        
-        # Nếu không có docs match, log warning
         if not docs:
-            print("--- [RAG WARNING] Không có document nào match với selected sources! ---")
+            print(f"⚠️ [RAG] Không tìm thấy kết quả cho: \"{query[:40]}...\"{filter_info}")
+            return docs
     else:
-        docs = docs[:5]
-        print(f"--- [RAG] No filter applied, using all sources ---")
+        docs = docs[:10]  # Nếu không có filter, chỉ lấy top 10
     
-    print(f"--- [RAG] Found {len(docs)} documents ---")
-    for i, doc in enumerate(docs[:5]):
+    # 5. LOG GỌN GÀNG - chỉ 1 block duy nhất
+    source_counts = {}
+    for doc in docs:
         source = doc.metadata.get('source', 'N/A')
-        print(f"    {i+1}. {source[:80]}")
+        short_source = source[:50] if len(source) > 50 else source
+        source_counts[short_source] = source_counts.get(short_source, 0) + 1
+    
+    print(f"📚 [RAG] \"{query[:40]}...\"{filter_info} → {len(docs)} chunks từ {len(source_counts)} nguồn")
+    for source, count in source_counts.items():
+        print(f"   └─ {source} ({count})")
     
     return docs
 

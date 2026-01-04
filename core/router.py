@@ -17,6 +17,9 @@ from .chains.retriever import retrieve_docs_with_filter
 # <<< IMPORT LUỒNG MỚI (LUỒNG 3) >>>
 from .agents.executor import agent_executor           # LUỒNG 3 (Thực thi)
 
+# <<< IMPORT TOOL LOADER >>>
+from utils.tool_loader import get_tool_context
+
 load_dotenv()
 api_key = os.getenv("GEMINI_API_KEY")
 if not api_key:
@@ -34,19 +37,9 @@ answer_llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash",
 # Hàm helper để định dạng context từ retriever
 def format_docs(docs: list[Document]) -> str:
     if not isinstance(docs, list) or not docs:
-        print("🔴 [RAG DEBUG] Không tìm thấy documents nào!")
         return "Không tìm thấy thông tin liên quan trong cơ sở tri thức."
     
     top_k_docs = docs[:5]
-    
-    print(f"\n{'='*60}")
-    print(f"🟢 [RAG DEBUG] Tìm thấy {len(docs)} documents, lấy top {len(top_k_docs)}")
-    for i, doc in enumerate(top_k_docs):
-        source = doc.metadata.get('source', 'N/A')
-        content_preview = doc.page_content[:200].replace('\n', ' ')
-        print(f"  📄 Doc {i+1}: {source}")
-        print(f"     Preview: {content_preview}...")
-    print(f"{'='*60}\n")
     
     return "\n\n---\n\n".join(
         f"Nguồn: {doc.metadata.get('source', 'N/A')}\n\n{doc.page_content}"
@@ -118,27 +111,64 @@ def extract_context_keywords(chat_history: list) -> str:
 def prepare_subchain_input(x: dict) -> dict:
     """
     Chuẩn bị input dict cho các subchain (agent_executor, full_plan_chain).
+    Bao gồm cả tool context nếu user yêu cầu dùng tool cụ thể.
     """
+    user_input = x.get("user_input", "")
+    
+    # Load tool context nếu user yêu cầu dùng tool cụ thể
+    tool_context = get_tool_context(user_input)
+    
+    # Kết hợp RAG context và tool context
+    rag_context = format_docs(x.get("rag_context_docs", []))
+    
+    if tool_context:
+        # Nếu có tool context, đặt lên đầu (ưu tiên cao hơn RAG)
+        combined_context = f"{tool_context}\n\n---\n\n**RAG CONTEXT (Thông tin bổ sung):**\n{rag_context}"
+    else:
+        combined_context = rag_context
+    
     return {
-        "user_input": x.get("user_input", ""),
-        "chat_history": format_chat_history(x.get("chat_history", [])),
-        "rag_context": format_docs(x.get("rag_context_docs", [])),
+        "user_input": user_input,
+        "chat_history": x.get("chat_history", []),  # Giữ nguyên list, executor.py sẽ convert
+        "rag_context": combined_context,
         "selected_sources": x.get("selected_sources", None)
     }
 
+# Mapping topic -> tên luồng hiển thị
+TOPIC_DISPLAY_NAMES = {
+    "general_conversation": "LUỒNG 0: Chào Hỏi/Chung",
+    "execute_pentest_tool": "LUỒNG 3: Thực Thi Tools",
+    "specific_vulnerability_info": "LUỒNG 1: RAG Trả Lời (Lỗ Hổng)",
+    "tool_usage": "LUỒNG 1: RAG Trả Lời (Hướng Dẫn Tool)",
+    "generate_full_plan": "LUỒNG 2: Lập Kế Hoạch Pentest",
+    "static_code_review": "LUỒNG 4: Review Code Tĩnh",
+}
+
 # Hàm debug để log thông tin phân loại
 def log_classification(input_dict: dict) -> dict:
-    topic = input_dict.get("topic", "UNKNOWN")
-    user_input = input_dict.get("user_input", "")[:50]
+    topic = input_dict.get("topic", "UNKNOWN").strip().lower()
+    user_input = input_dict.get("user_input", "")
     rag_docs = input_dict.get("rag_context_docs", [])
     selected_sources = input_dict.get("selected_sources", [])
+    chat_history = input_dict.get("chat_history", [])
     
-    print(f"\n{'='*60}")
-    print(f"🔵 [ROUTER DEBUG] Topic: {topic}")
-    print(f"   User Input: {user_input}...")
-    print(f"   RAG Docs Count: {len(rag_docs) if rag_docs else 0}")
-    print(f"   Selected Sources: {len(selected_sources) if selected_sources else 'All'}")
-    print(f"{'='*60}\n")
+    # Xác định tên luồng
+    flow_name = TOPIC_DISPLAY_NAMES.get(topic, f"UNKNOWN ({topic})")
+    
+    print(f"\n{'='*70}")
+    print(f"📥 USER INPUT: \"{user_input[:100]}{'...' if len(user_input) > 100 else ''}\"")
+    print(f"{'='*70}")
+    print(f"🔀 ROUTER PHÂN LOẠI:")
+    print(f"   └─ Topic: {topic}")
+    print(f"   └─ Chuyển đến: {flow_name}")
+    print(f"{'─'*70}")
+    print(f"📚 CONTEXT:")
+    print(f"   └─ RAG Docs: {len(rag_docs) if rag_docs else 0} documents")
+    print(f"   └─ Selected Sources: {len(selected_sources) if selected_sources else 'Tất cả'}")
+    print(f"   └─ Chat History: {len(chat_history)} tin nhắn")
+    print(f"{'─'*70}")
+    print(f"⏳ Đang xử lý tại {flow_name}...")
+    print(f"{'='*70}\n")
     
     return input_dict
 
@@ -186,11 +216,80 @@ def create_router():
     
     early_rag_retrieval_chain = RunnableLambda(early_rag_with_filter)
 
+    # === LOGGING WRAPPERS CHO CÁC LUỒNG ===
+    
+    def log_general_response(response):
+        """Log kết quả Luồng 0 (General Conversation)"""
+        print(f"\n{'='*70}")
+        print(f"✅ LUỒNG 0: General Conversation HOÀN THÀNH")
+        print(f"{'─'*70}")
+        print(f"📤 OUTPUT: {response[:200]}...")
+        print(f"{'='*70}\n")
+        return response
+    
+    def log_rag_response(response):
+        """Log kết quả Luồng 1 (RAG Direct Answer)"""
+        print(f"\n{'='*70}")
+        print(f"✅ LUỒNG 1: RAG Trả Lời HOÀN THÀNH")
+        print(f"{'─'*70}")
+        print(f"📤 OUTPUT (preview):")
+        print(f"   {response[:300]}{'...' if len(str(response)) > 300 else ''}")
+        print(f"{'='*70}\n")
+        return response
+    
+    def log_plan_response(response):
+        """Log kết quả Luồng 2 (Full Plan) - CHI TIẾT TỪNG BƯỚC"""
+        print(f"\n{'='*70}")
+        print(f"✅ LUỒNG 2: Lập Kế Hoạch HOÀN THÀNH")
+        print(f"{'='*70}")
+        
+        if isinstance(response, dict):
+            # Các bước chính cần log
+            steps_to_log = [
+                ("recon_results", "🔍 BƯỚC 1: Thu Thập Thông Tin (Recon)"),
+                ("analysis_results", "🔬 BƯỚC 2: Phân Tích Lỗ Hổng"),
+                ("exploitation_results", "💥 BƯỚC 3: Kế Hoạch Khai Thác"),
+                ("actionable_intelligence", "📋 BƯỚC 4: Payload & Hướng Dẫn"),
+            ]
+            
+            for key, title in steps_to_log:
+                value = response.get(key, "")
+                if value:
+                    # Extract content từ AIMessage nếu cần
+                    content = value.content if hasattr(value, 'content') else str(value)
+                    
+                    print(f"\n{'─'*70}")
+                    print(f"{title}")
+                    print(f"{'─'*70}")
+                    
+                    # Giới hạn độ dài để không quá dài
+                    if len(content) > 500:
+                        print(f"{content[:500]}...")
+                        print(f"[...còn {len(content) - 500} ký tự]")
+                    else:
+                        print(content)
+        else:
+            print(f"📤 OUTPUT: {str(response)[:500]}...")
+        
+        print(f"\n{'='*70}\n")
+        return response
+
     # 3. Logic Phân nhánh 3 Luồng
     branch = RunnableBranch(
         
-        # ĐIỀU KIỆN 1: THỰC THI (LUỒNG 3)
+        # ĐIỀU KIỆN 0: GENERAL CONVERSATION (Chào hỏi, câu hỏi chung)
+        (lambda x: "general_conversation" in x["topic"].lower(),
+            RunnableLambda(lambda x: "Xin chào! 👋 Tôi là Cyber-Mentor, trợ lý AI chuyên về Penetration Testing và An ninh mạng.\n\nTôi có thể giúp bạn:\n- 🔍 Phân tích lỗ hổng và CVE\n- 📋 Lên kế hoạch pentest\n- 🛠️ Sử dụng các công cụ như Nmap, SQLMap\n- 📚 Tìm kiếm thông tin từ cơ sở tri thức\n\nBạn muốn tôi hỗ trợ gì?")
+            | RunnableLambda(log_general_response)
+        ),
+        
+        # ĐIỀU KIỆN 1: THỰC THI (LUỒNG 3) - đã có logging trong executor.py
         (lambda x: "execute_pentest_tool" in x["topic"],
+            RunnableLambda(prepare_subchain_input) | agent_executor
+        ),
+        
+        # ĐIỀU KIỆN 1.5: STATIC CODE REVIEW (LUỒNG 4) - Review source code
+        (lambda x: "static_code_review" in x["topic"],
             RunnableLambda(prepare_subchain_input) | agent_executor
         ),
         
@@ -202,11 +301,11 @@ def create_router():
                     "rag_context": format_docs(x.get("rag_context_docs", [])),
                     "chat_history": format_chat_history(x.get("chat_history", []))
                 }
-            ) | direct_rag_answer_chain
+            ) | direct_rag_answer_chain | RunnableLambda(log_rag_response)
         ),
         
         # FALLBACK: (LUỒNG 2 - Lên kế hoạch)
-        RunnableLambda(prepare_subchain_input) | full_plan_chain
+        RunnableLambda(prepare_subchain_input) | full_plan_chain | RunnableLambda(log_plan_response)
     )
 
     # 4. Gắn kết tất cả lại

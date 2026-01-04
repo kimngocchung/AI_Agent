@@ -22,6 +22,42 @@ from utils.document_processor import (
 )
 from utils.url_fetcher import url_to_document
 from utils.ai_generator import generate_document_summary, generate_suggested_questions
+import google.generativeai as genai
+
+
+def generate_conversation_title(first_message: str) -> str:
+    """
+    Tự động tạo tiêu đề ngắn gọn cho cuộc hội thoại dựa trên tin nhắn đầu tiên.
+    Giống như Gemini/Claude auto-rename conversations.
+    """
+    try:
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key or len(first_message.strip()) < 3:
+            return first_message[:30] + "..." if len(first_message) > 30 else first_message
+        
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel('gemini-2.0-flash')
+        
+        prompt = f"""Tạo một tiêu đề NGẮN GỌN (tối đa 5-7 từ) cho cuộc hội thoại dựa trên tin nhắn sau.
+Chỉ trả về tiêu đề, không giải thích gì thêm.
+
+Tin nhắn: {first_message[:200]}
+
+Tiêu đề:"""
+        
+        response = model.generate_content(prompt)
+        title = response.text.strip().strip('"').strip("'")
+        
+        # Giới hạn độ dài
+        if len(title) > 40:
+            title = title[:37] + "..."
+        
+        return title if title else first_message[:30]
+        
+    except Exception as e:
+        print(f"Error generating title: {e}")
+        # Fallback: dùng tin nhắn đầu tiên
+        return first_message[:30] + "..." if len(first_message) > 30 else first_message
 
 # 1. Cấu hình trang
 st.set_page_config(layout="wide", page_title="AI-AGent", page_icon="📓")
@@ -236,6 +272,52 @@ with col_left:
     else:
         st.info("Chưa có nguồn nào. Hãy thêm nguồn mới!")
         st.session_state.selected_sources = []
+    
+    # === PHẦN SCRIPTS (Tách riêng khỏi RAG) ===
+    st.markdown("---")
+    st.markdown('<div class="section-header">🛠️ Scripts</div>', unsafe_allow_html=True)
+    st.caption("Scripts được load nguyên vẹn (không qua RAG chunking)")
+    
+    # Script Upload
+    uploaded_script = st.file_uploader(
+        "Upload Script (.py, .sh)", 
+        type=["py", "sh", "bash"],
+        key="script_uploader",
+        help="Scripts sẽ được lưu vào folder scripts/ và AI có thể sử dụng trực tiếp"
+    )
+    
+    if uploaded_script:
+        scripts_dir = os.path.join(os.path.dirname(__file__), "scripts")
+        os.makedirs(scripts_dir, exist_ok=True)
+        
+        script_path = os.path.join(scripts_dir, uploaded_script.name)
+        with open(script_path, 'wb') as f:
+            f.write(uploaded_script.getvalue())
+        st.success(f"✅ Đã lưu: {uploaded_script.name}")
+        st.rerun()
+    
+    # Hiển thị danh sách scripts hiện có
+    scripts_dir = os.path.join(os.path.dirname(__file__), "scripts")
+    if os.path.exists(scripts_dir):
+        scripts = [f for f in os.listdir(scripts_dir) if f.endswith(('.py', '.sh', '.bash'))]
+        if scripts:
+            for script in scripts:
+                script_icon = "🐍" if script.endswith('.py') else "📜"
+                with st.expander(f"{script_icon} {script}", expanded=False):
+                    script_path = os.path.join(scripts_dir, script)
+                    # Hiển thị info
+                    file_size = os.path.getsize(script_path)
+                    with open(script_path, 'r', encoding='utf-8', errors='ignore') as f:
+                        lines = len(f.readlines())
+                    st.caption(f"📏 {lines} dòng | 💾 {file_size/1024:.1f} KB")
+                    
+                    # Nút xóa
+                    if st.button("🗑️ Xóa", key=f"del_script_{script}"):
+                        os.remove(script_path)
+                        st.success(f"Đã xóa {script}")
+                        st.rerun()
+        else:
+            st.caption("Chưa có script nào.")
 
 # === CỘT GIỮA: CHAT CHÍNH ===
 with col_center:
@@ -297,9 +379,137 @@ with col_center:
         prompt_to_run = prompt
 
     if prompt_to_run:
+        # === CHECK CONFIRMATION WORDS - XỬ LÝ TRƯỚC KHI GỌI AGENT ===
+        confirmation_words = ["có", "yes", "ok", "đồng ý", "chạy", "confirm", "thực hiện", "chạy đi", "run"]
+        is_confirmation = prompt_to_run.lower().strip() in confirmation_words
+        
+        # Nếu là confirmation và có pending script trong session state
+        if is_confirmation and "pending_script" in st.session_state and st.session_state.pending_script:
+            # Lưu tin nhắn user
+            get_current_chat_history().append({"role": "user", "content": prompt_to_run})
+            save_conversations()
+            
+            # Chạy script luôn mà không cần gọi LLM
+            with chat_container:
+                with st.chat_message("user", avatar="👤"):
+                    st.markdown(prompt_to_run)
+                
+                with st.chat_message("assistant", avatar="✨"):
+                    st.markdown("✅ Đã nhận xác nhận. Đang thực thi script trên Kali...")
+                    
+                    try:
+                        from core.tools.script_executor_tool import execute_script_on_kali
+                        
+                        script_data = st.session_state.pending_script
+                        
+                        # Lấy args từ proposal (AI Agent tự điền)
+                        args = script_data.get("args", "")
+                        target = script_data.get("target", "")
+                        
+                        print(f"[APP DEBUG] Executing script with target: {target}")
+                        print(f"[APP DEBUG] Args from proposal: {args}")
+                        
+                        result = execute_script_on_kali(
+                            script_content=script_data.get("script", ""),
+                            script_type=script_data.get("type", "python"),
+                            args=args
+                        )
+                        
+                        output_text = result.get("output", "").strip()
+                        error_text = result.get("error_output", "").strip()
+                        
+                        # Debug: hiển thị raw result
+                        print(f"[APP DEBUG] Result success: {result.get('success')}")
+                        print(f"[APP DEBUG] Output length: {len(output_text)}")
+                        print(f"[APP DEBUG] Error length: {len(error_text)}")
+                        print(f"[APP DEBUG] Output preview: {output_text[:500] if output_text else 'EMPTY'}")
+                        
+                        if result.get("success"):
+                            st.success("✅ Script chạy thành công!")
+                            if output_text:
+                                st.markdown("**📄 Output:**")
+                                # Giới hạn output để tránh UI crash
+                                display_output = output_text[:10000] if len(output_text) > 10000 else output_text
+                                st.markdown(f"```bash\n{display_output}\n```")
+                            else:
+                                st.warning("⚠️ Script chạy thành công nhưng không có output. Có thể script cần thêm target URL.")
+                        else:
+                            st.error("❌ Script thất bại!")
+                            if error_text:
+                                st.markdown(f"```\n{error_text}\n```")
+                            if output_text:
+                                st.markdown("**Output trước khi lỗi:**")
+                                st.markdown(f"```\n{output_text}\n```")
+                        
+                        # Lưu kết quả
+                        result_msg = f"## 🖥️ Kết quả\n**Trạng thái:** {'✅ Thành công' if result.get('success') else '❌ Thất bại'}\n```\n{output_text or error_text or '(Không có output)'}\n```"
+                        get_current_chat_history().append({"role": "assistant", "content": result_msg})
+                        save_conversations()
+                        
+                        # Xóa pending script
+                        del st.session_state["pending_script"]
+                        
+                        # === AI PHÂN TÍCH KẾT QUẢ ===
+                        if output_text and len(output_text) > 50:  # Chỉ phân tích nếu có output đáng kể
+                            st.markdown("---")
+                            with st.spinner("🧠 AI đang phân tích kết quả..."):
+                                try:
+                                    from langchain_google_genai import ChatGoogleGenerativeAI
+                                    import os
+                                    
+                                    analysis_llm = ChatGoogleGenerativeAI(
+                                        model="gemini-2.0-flash",
+                                        google_api_key=os.getenv("GEMINI_API_KEY"),
+                                        temperature=0.3
+                                    )
+                                    
+                                    analysis_prompt = f"""Bạn là chuyên gia phân tích bảo mật. Phân tích kết quả scan sau đây và đưa ra:
+
+1. **TÓM TẮT:** Kết quả chính (vulnerable hay không?)
+2. **CHI TIẾT:** Giải thích ý nghĩa của từng phần output
+3. **KHUYẾN NGHỊ:** Bước tiếp theo nên làm gì?
+
+**OUTPUT TỪ SCRIPT:**
+```
+{output_text[:3000]}
+```
+
+Trả lời ngắn gọn, dễ hiểu, bằng tiếng Việt."""
+
+                                    analysis_response = analysis_llm.invoke(analysis_prompt)
+                                    analysis_text = analysis_response.content if hasattr(analysis_response, 'content') else str(analysis_response)
+                                    
+                                    st.markdown("### 🧠 Phân tích của AI:")
+                                    st.markdown(analysis_text)
+                                    
+                                    # Lưu phân tích vào chat history
+                                    get_current_chat_history().append({
+                                        "role": "assistant", 
+                                        "content": f"### 🧠 Phân tích kết quả:\n{analysis_text}"
+                                    })
+                                    save_conversations()
+                                    
+                                except Exception as e:
+                                    st.warning(f"⚠️ Không thể phân tích tự động: {e}")
+                        
+                    except Exception as e:
+                        st.error(f"Lỗi: {e}")
+                        if "pending_script" in st.session_state:
+                            del st.session_state["pending_script"]
+            
+            # Không gọi agent, kết thúc luôn
+            st.stop()
+        
         # 1. Lưu tin nhắn User
         get_current_chat_history().append({"role": "user", "content": prompt_to_run})
         save_conversations()
+        
+        # === AUTO-RENAME: Đổi title nếu đây là tin nhắn đầu tiên ===
+        current_title = st.session_state.conversations[st.session_state.active_chat_id].get("title", "")
+        if len(get_current_chat_history()) == 1 and current_title in ["Cuộc trò chuyện mới", "New conversation"]:
+            new_title = generate_conversation_title(prompt_to_run)
+            st.session_state.conversations[st.session_state.active_chat_id]["title"] = new_title
+            save_conversations()
         
         # 2. Hiển thị ngay lập tức
         with chat_container:
@@ -317,17 +527,133 @@ with col_center:
                             "selected_sources": selected_sources
                         })
                         
-                        # Xử lý kết quả trả về
+                        # Debug: Print raw response
+                        print(f"[APP DEBUG] Raw response type: {type(response)}")
+                        print(f"[APP DEBUG] Raw response keys: {response.keys() if isinstance(response, dict) else 'N/A'}")
+                        
+                        # === QUAN TRỌNG: Lấy tool output từ intermediate_steps ===
+                        # Tìm tool output có nội dung chi tiết (run_script_with_analysis hoặc propose_exploit_script)
+                        detailed_tool_output = ""
+                        if isinstance(response, dict) and 'intermediate_steps' in response:
+                            for i, step in enumerate(response['intermediate_steps']):
+                                if hasattr(step, '__iter__') and len(step) > 1:
+                                    step_output = str(step[1]) if len(step) > 1 else ""
+                                    print(f"[APP DEBUG] Step {i} output length: {len(step_output)}")
+                                    
+                                    # Lấy output từ run_script_with_analysis (có ## 📄 Script) hoặc propose_exploit_script (có __SCRIPT_PROPOSAL__)
+                                    if "## 📄 Script:" in step_output or "### 🔍 Phân tích Script:" in step_output:
+                                        detailed_tool_output = step_output
+                                        print(f"[APP DEBUG] ✅ Found run_script_with_analysis output!")
+                                        break
+                                    elif "__SCRIPT_PROPOSAL__" in step_output:
+                                        detailed_tool_output = step_output
+                                        print(f"[APP DEBUG] ✅ Found SCRIPT_PROPOSAL in intermediate_steps!")
+                                        break
+                        
+                        # Xử lý kết quả trả về - hỗ trợ nhiều format
                         full_text = ""
-                        if isinstance(response, dict) and 'actionable_intelligence' in response:
-                            full_text = response['actionable_intelligence']
-                            if hasattr(full_text, 'content'): full_text = full_text.content
+                        
+                        if isinstance(response, dict):
+                            # Print first 500 chars of output for debugging
+                            raw_output = response.get('output', '')
+                            print(f"[APP DEBUG] Output preview: {str(raw_output)[:500]}")
+                            
+                            # ƯU TIÊN: Nếu có detailed tool output, dùng nó thay vì AI summary
+                            if detailed_tool_output:
+                                full_text = detailed_tool_output
+                                print(f"[APP DEBUG] Using detailed_tool_output instead of AI summary")
+                            elif 'output' in response:
+                                full_text = response['output']
+                            elif 'actionable_intelligence' in response:
+                                full_text = response['actionable_intelligence']
+                            elif 'result' in response:
+                                full_text = response['result']
+                            elif 'content' in response:
+                                full_text = response['content']
+                            else:
+                                # Fallback: format dict đẹp hơn thay vì raw
+                                import json
+                                full_text = f"```json\n{json.dumps(response, ensure_ascii=False, indent=2)}\n```"
                         elif isinstance(response, str):
                             full_text = response
+                        elif hasattr(response, 'content'):
+                            full_text = response.content
                         else:
                             full_text = str(response)
+                        
+                        # Đảm bảo full_text là string
+                        if hasattr(full_text, 'content'):
+                            full_text = full_text.content
+                        if not isinstance(full_text, str):
+                            full_text = str(full_text)
 
                         st.markdown(full_text)
+                        
+                        # === XỬ LÝ SCRIPT PROPOSAL ===
+                        # Detect marker đặc biệt __SCRIPT_PROPOSAL__
+                        print(f"[APP DEBUG] Checking for SCRIPT_PROPOSAL markers...")
+                        print(f"[APP DEBUG] Has __SCRIPT_PROPOSAL__: {'__SCRIPT_PROPOSAL__' in full_text}")
+                        print(f"[APP DEBUG] Has __END_SCRIPT_PROPOSAL__: {'__END_SCRIPT_PROPOSAL__' in full_text}")
+                        
+                        if "__SCRIPT_PROPOSAL__" in full_text and "__END_SCRIPT_PROPOSAL__" in full_text:
+                            import re
+                            import json as json_module
+                            
+                            print("[APP DEBUG] Found both markers! Extracting JSON...")
+                            
+                            # Pattern để lấy JSON giữa 2 markers (hỗ trợ multi-line)
+                            match = re.search(r'__SCRIPT_PROPOSAL__\s*(\{[\s\S]*?\})\s*__END_SCRIPT_PROPOSAL__', full_text)
+                            if match:
+                                try:
+                                    json_str = match.group(1).strip()
+                                    print(f"[APP DEBUG] JSON string length: {len(json_str)}")
+                                    print(f"[APP DEBUG] JSON first 200 chars: {json_str[:200]}")
+                                    
+                                    # Parse JSON bằng ast.literal_eval để xử lý Python string escaping
+                                    import ast
+                                    script_data = ast.literal_eval(json_str)
+                                    st.session_state["pending_script"] = script_data
+                                    st.success("✅ **Script đã sẵn sàng!** Trả lời 'có' hoặc click nút bên dưới để chạy trên Kali.")
+                                    print(f"[APP DEBUG] ✅ SUCCESS! Parsed script proposal:")
+                                    print(f"    type={script_data.get('type')}")
+                                    print(f"    target={script_data.get('target')}")
+                                    print(f"    script length={len(script_data.get('script', ''))}")
+                                except Exception as e:
+                                    print(f"[APP DEBUG] ❌ Error parsing with ast: {e}")
+                                    # Fallback: try eval
+                                    try:
+                                        script_data = eval(json_str)
+                                        st.session_state["pending_script"] = script_data
+                                        st.success("✅ **Script đã sẵn sàng!** Trả lời 'có' để chạy.")
+                                        print(f"[APP DEBUG] ✅ SUCCESS with eval fallback")
+                                    except Exception as e2:
+                                        print(f"[APP DEBUG] ❌ Eval also failed: {e2}")
+                                        st.warning(f"⚠️ Không thể parse script proposal: {e}")
+                            else:
+                                print("[APP DEBUG] ❌ Regex match failed - no match found")
+                        
+                        # Cách 2: Detect code blocks Python/Bash + từ khóa xác nhận
+                        elif ("```python" in full_text or "```bash" in full_text) and \
+                             any(kw in full_text.lower() for kw in ["xác nhận", "đồng ý", "có muốn", "bạn có muốn", "yes", "có"]):
+                            import re
+                            
+                            # Trích xuất code block
+                            code_match = re.search(r'```(python|bash)\n(.*?)```', full_text, re.DOTALL)
+                            if code_match:
+                                script_type = code_match.group(1)
+                                script_content = code_match.group(2).strip()
+                                
+                                # Tìm target URL nếu có
+                                target_match = re.search(r'(https?://[^\s\'"]+)', full_text)
+                                target = target_match.group(1) if target_match else "Unknown"
+                                
+                                st.session_state["pending_script"] = {
+                                    "type": script_type,
+                                    "script": script_content,
+                                    "description": "Script từ AI response",
+                                    "target": target
+                                }
+                                st.success(f"✅ Đã nhận diện script {script_type.upper()}. Trả lời **'có'** để chạy trên Kali.")
                         
                         # Lưu tin nhắn Bot
                         get_current_chat_history().append({"role": "assistant", "content": full_text})
@@ -341,6 +667,88 @@ with col_center:
                             
                     except Exception as e:
                         st.error(f"Lỗi: {e}")
+
+# === XỬ LÝ NÚT XÁC NHẬN SCRIPT ===
+if "pending_script" in st.session_state and st.session_state.pending_script:
+    script_data = st.session_state.pending_script
+    
+    with st.container():
+        st.markdown("---")
+        st.markdown("### 🔐 Script đang chờ xác nhận")
+        st.markdown(f"**Loại:** `{script_data.get('type', 'python')}`")
+        st.markdown(f"**Mô tả:** {script_data.get('description', 'N/A')}")
+        st.markdown(f"**Mục tiêu:** {script_data.get('target', 'N/A')}")
+        
+        col_run, col_cancel = st.columns(2)
+        
+        with col_run:
+            if st.button("✅ Chạy trên Kali", type="primary", use_container_width=True):
+                with st.spinner("Đang chạy script trên Kali..."):
+                    try:
+                        from core.tools.script_executor_tool import execute_script_on_kali
+                        
+                        # Lấy args từ proposal (AI Agent tự điền)
+                        args = script_data.get("args", "")
+                        target = script_data.get("target", "")
+                        
+                        print(f"[APP DEBUG] Sidebar execute - Target: {target}, Args: {args}")
+                        
+                        result = execute_script_on_kali(
+                            script_content=script_data.get("script", ""),
+                            script_type=script_data.get("type", "python"),
+                            args=args
+                        )
+                        
+                        # Hiển thị kết quả
+                        output_text = result.get("output", "").strip()
+                        error_text = result.get("error_output", "").strip()
+                        
+                        if result.get("success"):
+                            st.success("✅ Script chạy thành công!")
+                            if output_text:
+                                st.markdown("**📄 Output:**")
+                                # Dùng markdown code block để format terminal output
+                                st.markdown(f"```bash\n{output_text}\n```")
+                        else:
+                            st.error("❌ Script thất bại!")
+                            if error_text:
+                                st.markdown("**⚠️ Error:**")
+                                st.markdown(f"```\n{error_text}\n```")
+                            if output_text:
+                                st.markdown("**📄 Output:**")
+                                st.markdown(f"```\n{output_text}\n```")
+                        
+                        # Lưu kết quả vào chat history - format đẹp hơn
+                        result_text = f"""## 🖥️ Kết quả chạy script
+
+**Trạng thái:** {"✅ Thành công" if result.get("success") else "❌ Thất bại"}
+
+### 📄 Output:
+```bash
+{output_text if output_text else "(Không có output)"}
+```
+
+### ⚠️ Error Log:
+```
+{error_text if error_text else "(Không có lỗi)"}
+```
+"""
+                        get_current_chat_history().append({"role": "assistant", "content": result_text})
+                        save_conversations()
+                        
+                        # Xóa pending script
+                        del st.session_state["pending_script"]
+                        
+                    except Exception as e:
+                        st.error(f"Lỗi: {e}")
+                        if "pending_script" in st.session_state:
+                            del st.session_state["pending_script"]
+        
+        with col_cancel:
+            if st.button("❌ Hủy", use_container_width=True):
+                del st.session_state["pending_script"]
+                st.info("Đã hủy chạy script.")
+                st.rerun()
 
 # === CỘT PHẢI: STUDIO & HISTORY ===
 with col_right:

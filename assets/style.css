@@ -13,6 +13,37 @@
     font-family: 'Roboto', sans-serif !important;
 }
 
+/* === GIẢM HIỆU ỨNG NHẤP NHÁY KHI RERUN === */
+/* Transition mượt cho tất cả elements */
+.stApp * {
+    transition: opacity 0.15s ease-in-out, background-color 0.15s ease-in-out !important;
+}
+
+/* Ẩn loading overlay mặc định */
+div[data-testid="stStatusWidget"] {
+    display: none !important;
+}
+
+/* Smooth fade-in cho content */
+.main .block-container {
+    animation: fadeIn 0.2s ease-in-out;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0.7;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+/* Giảm độ sáng khi loading - làm nhẹ hơn */
+div[data-testid="stAppViewContainer"][aria-busy="true"] {
+    opacity: 0.95 !important;
+}
+
 /* Ẩn Header mặc định của Streamlit */
 header[data-testid="stHeader"] {
     visibility: hidden;

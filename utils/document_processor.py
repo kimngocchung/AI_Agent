@@ -227,3 +227,200 @@ def get_faiss_stats(faiss_path: str = None) -> dict:
     except Exception as e:
         print(f"Error getting FAISS stats: {e}")
         return {"exists": False, "doc_count": 0, "error": str(e), "path": faiss_path}
+
+
+def delete_from_faiss(source_name: str, faiss_path: str = None) -> tuple[bool, str, int]:
+    """
+    Xóa tất cả documents của một source khỏi FAISS index
+    
+    Args:
+        source_name: Tên nguồn cần xóa (metadata['source'])
+        faiss_path: Đường dẫn tới FAISS index
+        
+    Returns:
+        (success: bool, message: str, deleted_count: int)
+    """
+    # Sử dụng đường dẫn chuẩn nếu không chỉ định
+    if faiss_path is None or faiss_path == "my_faiss_index":
+        faiss_path = DEFAULT_FAISS_PATH
+    
+    print(f"--- [FAISS] Đang xóa chunks của source: {source_name} ---")
+    
+    try:
+        if not os.path.exists(faiss_path):
+            return False, "FAISS index không tồn tại", 0
+        
+        # Initialize embeddings
+        embeddings = HuggingFaceEmbeddings(
+            model_name="sentence-transformers/all-MiniLM-L6-v2"
+        )
+        
+        # Load existing index
+        vectorstore = FAISS.load_local(
+            faiss_path,
+            embeddings,
+            allow_dangerous_deserialization=True
+        )
+        
+        old_count = vectorstore.index.ntotal
+        
+        # Tìm các doc_ids cần xóa dựa trên source name
+        ids_to_delete = []
+        
+        # FAISS docstore chứa mapping id -> document
+        # Duyệt qua tất cả documents để tìm những cái cần xóa
+        docstore = vectorstore.docstore
+        index_to_docstore_id = vectorstore.index_to_docstore_id
+        
+        for idx, doc_id in index_to_docstore_id.items():
+            doc = docstore.search(doc_id)
+            if doc and hasattr(doc, 'metadata'):
+                doc_source = doc.metadata.get('source', '')
+                # So sánh source name (có thể là substring match cho URLs)
+                if doc_source == source_name or source_name in doc_source or doc_source in source_name:
+                    ids_to_delete.append(doc_id)
+        
+        if not ids_to_delete:
+            print(f"--- [FAISS] Không tìm thấy chunks nào của source: {source_name} ---")
+            return True, f"Không tìm thấy chunks của {source_name}", 0
+        
+        print(f"--- [FAISS] Tìm thấy {len(ids_to_delete)} chunks cần xóa ---")
+        
+        # Xóa các documents
+        # FAISS vectorstore có method delete để xóa theo ids
+        vectorstore.delete(ids_to_delete)
+        
+        # Lưu lại index
+        vectorstore.save_local(faiss_path)
+        
+        new_count = vectorstore.index.ntotal
+        deleted_count = old_count - new_count
+        
+        print(f"--- [FAISS] Đã xóa: {old_count} -> {new_count} docs (xóa {deleted_count}) ---")
+        
+        # Reload retriever
+        try:
+            import sys
+            import importlib
+            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            if base_dir not in sys.path:
+                sys.path.insert(0, base_dir)
+            retriever_module = importlib.import_module('core.chains.retriever')
+            retriever_module.reload_retriever()
+            print("--- [FAISS] Retriever reloaded! ---")
+        except Exception as e:
+            print(f"--- [FAISS Warning] Could not reload retriever: {e} ---")
+        
+        return True, f"✅ Đã xóa {deleted_count} chunks của {source_name}", deleted_count
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return False, f"❌ Lỗi xóa khỏi FAISS: {str(e)}", 0
+
+
+def cleanup_orphan_chunks(faiss_path: str = None) -> tuple[bool, str, int]:
+    """
+    Dọn dẹp các chunks không thuộc source nào trong metadata
+    (Orphan chunks từ các lần xóa source trước đó)
+    
+    Returns:
+        (success: bool, message: str, deleted_count: int)
+    """
+    if faiss_path is None or faiss_path == "my_faiss_index":
+        faiss_path = DEFAULT_FAISS_PATH
+    
+    print("--- [FAISS] Bắt đầu dọn dẹp orphan chunks ---")
+    
+    try:
+        if not os.path.exists(faiss_path):
+            return False, "FAISS index không tồn tại", 0
+        
+        # 1. Lấy danh sách sources hiện tại từ metadata
+        import json
+        sources_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "uploaded_sources.json")
+        
+        valid_sources = set()
+        if os.path.exists(sources_file):
+            with open(sources_file, 'r', encoding='utf-8') as f:
+                sources = json.load(f)
+                for s in sources:
+                    valid_sources.add(s.get('name', ''))
+        
+        print(f"--- [FAISS] Valid sources: {valid_sources} ---")
+        
+        if not valid_sources:
+            # Nếu không còn source nào, xóa toàn bộ FAISS index
+            import shutil
+            if os.path.exists(faiss_path):
+                shutil.rmtree(faiss_path)
+                print("--- [FAISS] Đã xóa toàn bộ FAISS index (không còn source nào) ---")
+                return True, "✅ Đã xóa toàn bộ FAISS index", 0
+        
+        # 2. Load FAISS và tìm orphan chunks
+        embeddings = HuggingFaceEmbeddings(
+            model_name="sentence-transformers/all-MiniLM-L6-v2"
+        )
+        
+        vectorstore = FAISS.load_local(
+            faiss_path,
+            embeddings,
+            allow_dangerous_deserialization=True
+        )
+        
+        old_count = vectorstore.index.ntotal
+        
+        # Tìm các orphan chunk ids
+        orphan_ids = []
+        docstore = vectorstore.docstore
+        index_to_docstore_id = vectorstore.index_to_docstore_id
+        
+        for idx, doc_id in index_to_docstore_id.items():
+            doc = docstore.search(doc_id)
+            if doc and hasattr(doc, 'metadata'):
+                doc_source = doc.metadata.get('source', '')
+                
+                # Kiểm tra xem source có trong danh sách valid không
+                is_valid = False
+                for valid_source in valid_sources:
+                    if doc_source == valid_source or valid_source in doc_source or doc_source in valid_source:
+                        is_valid = True
+                        break
+                
+                if not is_valid:
+                    orphan_ids.append(doc_id)
+                    print(f"    🗑️ Orphan: {doc_source[:60]}...")
+        
+        if not orphan_ids:
+            print("--- [FAISS] Không có orphan chunks ---")
+            return True, "Không có orphan chunks cần xóa", 0
+        
+        print(f"--- [FAISS] Tìm thấy {len(orphan_ids)} orphan chunks ---")
+        
+        # 3. Xóa orphan chunks
+        vectorstore.delete(orphan_ids)
+        vectorstore.save_local(faiss_path)
+        
+        new_count = vectorstore.index.ntotal
+        deleted_count = old_count - new_count
+        
+        print(f"--- [FAISS] Đã dọn dẹp: {old_count} -> {new_count} docs (xóa {deleted_count}) ---")
+        
+        # Reload retriever
+        try:
+            import sys
+            import importlib
+            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            if base_dir not in sys.path:
+                sys.path.insert(0, base_dir)
+            retriever_module = importlib.import_module('core.chains.retriever')
+            retriever_module.reload_retriever()
+        except Exception as e:
+            print(f"--- [FAISS Warning] Could not reload retriever: {e} ---")
+        
+        return True, f"✅ Đã xóa {deleted_count} orphan chunks", deleted_count
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return False, f"❌ Lỗi dọn dẹp: {str(e)}", 0

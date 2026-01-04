@@ -25,7 +25,7 @@ def save_sources(sources: List[Dict]):
     with open(SOURCES_FILE, 'w', encoding='utf-8') as f:
         json.dump(sources, f, ensure_ascii=False, indent=2)
 
-def add_source(name: str, type: str, size: int = 0, summary: str = "", suggested_questions: List[str] = None) -> bool:
+def add_source(name: str, type: str, size: int = 0, summary: str = "", suggested_questions: List[str] = None, path: str = "") -> bool:
     """
     Add a new source to the list
     
@@ -35,6 +35,7 @@ def add_source(name: str, type: str, size: int = 0, summary: str = "", suggested
         size: File size in bytes
         summary: Document summary
         suggested_questions: List of suggested questions
+        path: Absolute path to the source (optional)
         
     Returns:
         True if added successfully
@@ -46,6 +47,7 @@ def add_source(name: str, type: str, size: int = 0, summary: str = "", suggested
             "name": name,
             "type": type,
             "size": size,
+            "path": path,  # Metadata: path
             "uploaded_at": datetime.now().isoformat(),
             "chunks": 0,  # Will be updated after processing
             "summary": summary,
@@ -73,13 +75,33 @@ def update_source_chunks(name: str, chunk_count: int):
     save_sources(sources)
 
 def delete_source(name: str) -> bool:
-    """Delete a source from the list"""
+    """
+    Delete a source from the list AND remove its chunks from FAISS
+    
+    Args:
+        name: Source name to delete
+        
+    Returns:
+        True if deleted successfully
+    """
     try:
+        # 1. Xóa chunks khỏi FAISS trước
+        try:
+            from utils.document_processor import delete_from_faiss
+            success, message, deleted_count = delete_from_faiss(name)
+            print(f"--- [Source Manager] FAISS delete result: {message} ---")
+        except Exception as e:
+            print(f"--- [Source Manager] Warning: Could not delete from FAISS: {e} ---")
+        
+        # 2. Xóa metadata khỏi JSON
         sources = load_sources()
         sources = [s for s in sources if s["name"] != name]
         save_sources(sources)
+        
+        print(f"--- [Source Manager] Đã xóa source: {name} ---")
         return True
-    except:
+    except Exception as e:
+        print(f"--- [Source Manager] Error deleting source: {e} ---")
         return False
 
 def get_sources_by_type(source_type: str = None) -> List[Dict]:
