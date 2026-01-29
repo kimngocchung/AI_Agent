@@ -1,0 +1,438 @@
+'# PHÂN TÍCH CHI TIẾT DỰ ÁN AI AGENT - ĐỒ ÁN TỐT NGHIỆP
+
+## 📋 THÔNG TIN TỔNG QUAN
+
+| Thuộc tính | Giá trị |
+|-----------|---------|
+| **Tên dự án** | AI Pentesting Agent (Cyber-Mentor) |
+| **Ngôn ngữ** | Python |
+| **LLM Backend** | Google Gemini 2.0 Flash |
+| **Framework** | LangChain, Streamlit |
+| **Vector Database** | FAISS (RAG System) |
+| **Mục đích** | AI Agent hỗ trợ Penetration Testing & Code Review |
+
+---
+
+## 🏗️ KIẾN TRÚC HỆ THỐNG
+
+### Sơ đồ kiến trúc tổng quan
+
+```mermaid
+graph TB
+    subgraph "Frontend Layer"
+        A[Streamlit Web UI<br/>app.py] 
+        B[CLI Interface<br/>main.py]
+    end
+    
+    subgraph "Core Layer"
+        C[Router<br/>core/router.py] --> D{Intent Classification}
+        D --> E[Luồng 0: General Chat]
+        D --> F[Luồng 1: RAG Direct Answer]
+        D --> G[Luồng 2: Full Pentest Plan]
+        D --> H[Luồng 3: Tool Execution]
+        D --> I[Luồng 4: Static Code Review]
+    end
+    
+    subgraph "Agent Layer"
+        J[Agent Executor<br/>agents/executor.py]
+        K[LangChain Tool Calling Agent]
+    end
+    
+    subgraph "Tools Layer"
+        L[Security Scanning Tools]
+        M[Script Generator Tools]
+        N[Network Scanning Tools]
+    end
+    
+    subgraph "RAG Layer"
+        O[FAISS Vector Store]
+        P[Document Processor]
+        Q[Retriever with Filtering]
+    end
+    
+    A --> C
+    B --> C
+    H --> J
+    I --> J
+    J --> K
+    K --> L
+    K --> M
+    K --> N
+    F --> Q
+    Q --> O
+    P --> O
+```
+
+---
+
+## 📁 CẤU TRÚC THƯ MỤC DỰ ÁN
+
+```
+AI_Agent/
+├── app.py                      # 🖥️ Giao diện Web Streamlit (806 dòng)
+├── main.py                     # 💻 Giao diện CLI với Rich (95 dòng)
+├── requirements.txt            # 📦 Dependencies
+├── .env                        # 🔐 API Keys (Gemini)
+│
+├── core/                       # 🧠 CORE LOGIC
+│   ├── router.py               # 🔀 Context-Aware Router (317 dòng)
+│   ├── agents/
+│   │   └── executor.py         # 🤖 LangChain Agent Executor (190 dòng)
+│   ├── chains/
+│   │   ├── prompts.py          # 📝 System Prompts (632 dòng)
+│   │   ├── retriever.py        # 🔍 FAISS Retriever (244 dòng)
+│   │   ├── full_plan_chain.py  # 📋 Pentest Planning Chain
+│   │   └── tool_agent.py       # 🔧 Tool Agent Chain
+│   └── tools/
+│       ├── code_review_tool.py      # 🔐 Static Code Analysis (1202 dòng)
+│       ├── script_generator_tool.py # ⚡ Exploit Script Generator (754 dòng)
+│       ├── auto_script_tool.py      # 🔄 Auto Generate+Run+Fix (791 dòng)
+│       ├── nmap_tool.py             # 🌐 Network Scanning
+│       ├── sqlmap_tool.py           # 💉 SQL Injection Testing
+│       └── dirsearch_tool.py        # 📂 Directory Enumeration
+│
+├── utils/                      # 🛠️ UTILITIES
+│   ├── document_processor.py   # 📄 PDF/DOCX/TXT Processing (426 dòng)
+│   ├── source_manager.py       # 📚 Source Management
+│   ├── tool_loader.py          # 🔌 Dynamic Tool Loading
+│   ├── url_fetcher.py          # 🌍 URL Content Fetching
+│   └── ai_generator.py         # 🤖 AI Summary Generator
+│
+├── my_faiss_index/             # 💾 FAISS Vector Database
+├── scripts/                    # 📜 User-uploaded exploit scripts
+├── uploaded_docs/              # 📁 Uploaded documents for RAG
+└── conversations/              # 💬 Saved chat history
+```
+
+---
+
+## 🎯 CÁC TÍNH NĂNG CHÍNH
+
+### 1. 🔀 HỆ THỐNG ROUTING THÔNG MINH (Context-Aware Router)
+
+**File:** [router.py](file:///c:/Users/chung.kim_onemount/Documents/DA/AI_Agent/core/router.py)
+
+Hệ thống phân loại ý định người dùng và điều hướng đến luồng xử lý phù hợp:
+
+| Luồng | Tên | Mô tả | Trigger Keywords |
+|-------|-----|-------|------------------|
+| **0** | General Conversation | Chào hỏi, câu hỏi chung | "xin chào", "hello", câu hỏi không liên quan bảo mật |
+| **1** | RAG Direct Answer | Trả lời từ knowledge base | CVE-*, lỗ hổng, kỹ thuật tấn công |
+| **2** | Full Pentest Plan | Lập kế hoạch pentest chi tiết | "kế hoạch", "quét", "target", "domain" |
+| **3** | Tool Execution | Thực thi các security tools | "scan", "nmap", "sqlmap", "chạy" |
+| **4** | Static Code Review | Phân tích source code tĩnh | "review code", "scan IDOR", "tìm credentials" |
+
+**Các hàm quan trọng:**
+- [create_router()](file:///c:/Users/chung.kim_onemount/Documents/DA/AI_Agent/core/router.py#182-318): Tạo router chain chính
+- [extract_context_keywords()](file:///c:/Users/chung.kim_onemount/Documents/DA/AI_Agent/core/router.py#69-109): Trích xuất keywords từ chat history
+- [prepare_subchain_input()](file:///c:/Users/chung.kim_onemount/Documents/DA/AI_Agent/core/router.py#111-136): Chuẩn bị input cho từng subchain
+- [classify_with_history()](file:///c:/Users/chung.kim_onemount/Documents/DA/AI_Agent/core/router.py#189-194): Phân loại với context từ lịch sử chat
+
+---
+
+### 2. 🔐 CÔNG CỤ PHÂN TÍCH BẢO MẬT TĨNH (Static Code Analysis)
+
+**File:** [code_review_tool.py](file:///c:/Users/chung.kim_onemount/Documents/DA/AI_Agent/core/tools/code_review_tool.py)
+
+> [!IMPORTANT]
+> Đây là module quan trọng nhất cho việc phát hiện lỗ hổng trong source code
+
+| Function | Mô tả | Patterns Detected |
+|----------|-------|-------------------|
+| [scan_directory_for_code()](file:///c:/Users/chung.kim_onemount/Documents/DA/AI_Agent/core/tools/code_review_tool.py#59-117) | Liệt kê files code | Java, JS, Python, Config |
+| [read_source_file()](file:///c:/Users/chung.kim_onemount/Documents/DA/AI_Agent/core/tools/code_review_tool.py#119-176) | Đọc nội dung file | - |
+| [scan_hardcoded_credentials()](file:///c:/Users/chung.kim_onemount/Documents/DA/AI_Agent/core/tools/code_review_tool.py#178-309) | Tìm credentials hardcode | API keys, passwords, secrets |
+| [scan_idor_vulnerabilities()](file:///c:/Users/chung.kim_onemount/Documents/DA/AI_Agent/core/tools/code_review_tool.py#311-490) | Tìm IDOR | `findById`, `getById` without ownership check |
+| [scan_xss_vulnerabilities()](file:///c:/Users/chung.kim_onemount/Documents/DA/AI_Agent/core/tools/code_review_tool.py#492-622) | Tìm XSS | `dangerouslySetInnerHTML`, `innerHTML`, `document.write` |
+| [analyze_security_config()](file:///c:/Users/chung.kim_onemount/Documents/DA/AI_Agent/core/tools/code_review_tool.py#624-777) | Phân tích cấu hình | CSRF disabled, CORS misconfigured |
+| [full_security_scan()](file:///c:/Users/chung.kim_onemount/Documents/DA/AI_Agent/core/tools/code_review_tool.py#781-828) | Scan toàn diện | Kết hợp tất cả scans trên |
+| [import_source_to_rag()](file:///c:/Users/chung.kim_onemount/Documents/DA/AI_Agent/core/tools/code_review_tool.py#832-1025) | Import code vào RAG | - |
+| [search_pattern_in_code()](file:///c:/Users/chung.kim_onemount/Documents/DA/AI_Agent/core/tools/code_review_tool.py#1114-1201) | Tìm pattern trong code | Custom regex patterns |
+
+**Ví dụ patterns phát hiện IDOR:**
+```python
+IDOR_PATTERNS = [
+    r'findById\s*\(\s*[^)]+\)',           # JPA/Hibernate
+    r'getById\s*\(\s*[^)]+\)',            
+    r'@PathVariable.*id',                  # Spring MVC
+    r'request\.getParameter\s*\(\s*["\']id',
+]
+```
+
+---
+
+### 3. ⚡ HỆ THỐNG TỰ ĐỘNG TẠO VÀ CHẠY SCRIPT (Auto Script Tool)
+
+**File:** [auto_script_tool.py](file:///c:/Users/chung.kim_onemount/Documents/DA/AI_Agent/core/tools/auto_script_tool.py)
+
+```mermaid
+flowchart LR
+    A[User Request] --> B[Load Base Script]
+    B --> C[AI Generate Modified Script]
+    C --> D[Execute Locally]
+    D --> E{Success?}
+    E -->|Yes| F[AI Analyze Results]
+    E -->|No| G[AI Analyze Error]
+    G --> H[AI Generate Fix]
+    H --> D
+    F --> I[Return Results]
+```
+
+**Workflow tự động:**
+1. Load script gốc từ [scripts/](file:///c:/Users/chung.kim_onemount/Documents/DA/AI_Agent/core/tools/script_generator_tool.py#711-737) folder
+2. AI tạo script mới dựa trên yêu cầu user
+3. Chạy script trên terminal local
+4. Nếu lỗi → AI phân tích và tự sửa (tối đa 5 lần)
+5. Phân tích kết quả và báo cáo
+
+**Data Classes:**
+```python
+@dataclass
+class ExecutionResult:
+    success: bool
+    return_code: int
+    stdout: str
+    stderr: str
+    execution_time: float
+    error_type: Optional[str]
+
+@dataclass  
+class FixAttempt:
+    attempt_number: int
+    error_analysis: str
+    fix_strategy: str
+    script_diff_summary: str
+    result: ExecutionResult
+```
+
+---
+
+### 4. 🔍 HỆ THỐNG RAG (Retrieval-Augmented Generation)
+
+**File:** [retriever.py](file:///c:/Users/chung.kim_onemount/Documents/DA/AI_Agent/core/chains/retriever.py)
+
+| Component | Mô tả |
+|-----------|-------|
+| **Vector Store** | FAISS (Facebook AI Similarity Search) |
+| **Embeddings** | HuggingFace Sentence Transformers |
+| **Chunk Size** | 1000 characters |
+| **Chunk Overlap** | 200 characters |
+
+**Tính năng đặc biệt:**
+- **Source Filtering**: Lọc kết quả theo nguồn được chọn
+- **CVE Extraction**: Tự động nhận diện CVE codes trong query
+- **Lazy Loading**: Cache embeddings model để tối ưu hiệu năng
+
+**Supported Document Types:**
+- PDF (PyPDF2)
+- DOCX (python-docx)
+- TXT (plain text)
+- Markdown (.md)
+- URL content (BeautifulSoup4)
+
+---
+
+### 5. 📝 HỆ THỐNG PROMPT ENGINEERING
+
+**File:** [prompts.py](file:///c:/Users/chung.kim_onemount/Documents/DA/AI_Agent/core/chains/prompts.py)
+
+Định nghĩa các prompt templates cho từng luồng:
+
+| Prompt | Mục đích |
+|--------|----------|
+| `classification_prompt` | Phân loại ý định user (6 categories) |
+| `agent_system_prompt` | Hướng dẫn Agent sử dụng tools |
+| `rag_direct_prompt` | Trả lời từ RAG context |
+| `full_plan_prompt` | Tạo kế hoạch pentest chi tiết |
+
+**Classification Categories:**
+1. `general_conversation` - Chào hỏi/chung
+2. `specific_vulnerability_info` - Thông tin lỗ hổng
+3. `tool_usage` - Hướng dẫn sử dụng tool
+4. `execute_pentest_tool` - Thực thi tool
+5. `generate_full_plan` - Lập kế hoạch pentest
+6. `static_code_review` - Review code tĩnh
+
+---
+
+### 6. 🖥️ GIAO DIỆN NGƯỜI DÙNG
+
+#### Streamlit Web UI ([app.py](file:///c:/Users/chung.kim_onemount/Documents/DA/AI_Agent/app.py))
+
+| Feature | Mô tả |
+|---------|-------|
+| **Chat Interface** | Giao diện chat realtime |
+| **Conversation Management** | Lưu/load nhiều cuộc hội thoại |
+| **Source Management** | Upload/filter sources cho RAG |
+| **Auto Title Generation** | Tự động đặt tên cuộc hội thoại |
+
+#### CLI Interface ([main.py](file:///c:/Users/chung.kim_onemount/Documents/DA/AI_Agent/main.py))
+
+Sử dụng thư viện **Rich** để hiển thị:
+- Panels với border styling
+- Markdown rendering
+- Progress spinners
+- Colored output
+
+---
+
+## 🛠️ CÔNG NGHỆ SỬ DỤNG
+
+### Core Dependencies
+
+```
+# Core application
+langchain                    # LLM Framework
+google-generativeai          # Gemini API
+streamlit                    # Web UI
+rich                         # CLI Formatting
+pydantic                     # Data Validation
+python-dotenv               # Environment Variables
+
+# RAG System
+faiss-cpu                    # Vector Database
+langchain-huggingface        # Embeddings
+langchain-google-genai       # Gemini LangChain Integration
+
+# Document Processing
+PyPDF2                       # PDF Parsing
+python-docx                  # DOCX Parsing
+unstructured                 # Generic Document Parsing
+beautifulsoup4               # HTML/URL Parsing
+```
+
+---
+
+## 🔒 SECURITY TOOLS INTEGRATION
+
+### Network Scanning Tools
+
+| Tool | File | Mô tả |
+|------|------|-------|
+| Nmap | [nmap_tool.py](file:///c:/Users/chung.kim_onemount/Documents/DA/AI_Agent/core/tools/nmap_tool.py) | Port/service scanning |
+| SQLMap | [sqlmap_tool.py](file:///c:/Users/chung.kim_onemount/Documents/DA/AI_Agent/core/tools/sqlmap_tool.py) | SQL Injection testing |
+| DirSearch | [dirsearch_tool.py](file:///c:/Users/chung.kim_onemount/Documents/DA/AI_Agent/core/tools/dirsearch_tool.py) | Directory enumeration |
+
+### Script Management
+
+| Tool | File | Mô tả |
+|------|------|-------|
+| Script Generator | [script_generator_tool.py](file:///c:/Users/chung.kim_onemount/Documents/DA/AI_Agent/core/tools/script_generator_tool.py) | Tạo exploit scripts từ templates |
+| Script Executor | [script_executor_tool.py](file:///c:/Users/chung.kim_onemount/Documents/DA/AI_Agent/core/tools/script_executor_tool.py) | Chạy scripts với analysis |
+| Auto Script | [auto_script_tool.py](file:///c:/Users/chung.kim_onemount/Documents/DA/AI_Agent/test_auto_script_tool.py) | Generate + Run + Auto-fix loop |
+
+---
+
+## 📊 KIẾN TRÚC DỮ LIỆU
+
+### Session State (Streamlit)
+```python
+st.session_state = {
+    "conversations": {
+        "chat_id": {
+            "title": str,
+            "messages": List[Dict],
+            "recommendation": Optional[str]
+        }
+    },
+    "active_chat_id": str,
+    "selected_sources": List[str]
+}
+```
+
+### FAISS Document Metadata
+```python
+Document(
+    page_content=str,
+    metadata={
+        "source": str,          # Tên nguồn hiển thị
+        "source_file": str,     # Đường dẫn file
+        "project": str,         # Tên project (cho code)
+        "file_type": str,       # Loại file
+        "chunk_index": int      # Vị trí chunk
+    }
+)
+```
+
+---
+
+## 🎓 GỢI Ý CHO ĐỒ ÁN TỐT NGHIỆP
+
+### Các chương đề xuất:
+
+1. **Chương 1: Giới thiệu**
+   - Bối cảnh và tính cấp thiết của vấn đề AI trong Cybersecurity
+   - Mục tiêu đồ án
+   - Phạm vi nghiên cứu
+
+2. **Chương 2: Cơ sở lý thuyết**
+   - Large Language Models (LLMs) và Gemini
+   - LangChain Framework
+   - RAG (Retrieval-Augmented Generation)
+   - FAISS Vector Database
+   - Penetration Testing Methodology
+
+3. **Chương 3: Phân tích và thiết kế hệ thống**
+   - Kiến trúc tổng quan (sử dụng các sơ đồ ở trên)
+   - Thiết kế các module
+   - Luồng xử lý và routing
+
+4. **Chương 4: Triển khai**
+   - Chi tiết implementation từng module
+   - Prompt Engineering
+   - Tool Integration
+
+5. **Chương 5: Kiểm thử và đánh giá**
+   - Test cases cho từng tool
+   - Đánh giá accuracy của phát hiện lỗ hổng
+   - So sánh với các công cụ thương mại
+
+6. **Chương 6: Kết luận**
+   - Kết quả đạt được
+   - Hạn chế
+   - Hướng phát triển
+
+---
+
+## 📈 ĐIỂM MẠNH CỦA DỰ ÁN
+
+> [!TIP]
+> Những điểm này nên được nhấn mạnh trong đồ án
+
+1. **Context-Aware Routing**: Phân loại ý định thông minh dựa trên chat history
+2. **Self-Healing Scripts**: Tự động sửa lỗi script trong vòng lặp
+3. **RAG Integration**: Kết hợp kiến thức từ documents với LLM
+4. **Multi-Modal UI**: Cả Web và CLI interface
+5. **Modular Architecture**: Dễ mở rộng thêm tools mới
+6. **Vietnamese Language Support**: Hỗ trợ tiếng Việt native
+
+---
+
+## ⚠️ HẠN CHẾ VÀ HƯỚNG PHÁT TRIỂN
+
+> [!WARNING]
+> Những điểm cần cải thiện
+
+1. **Dependency Management**: Thiếu version pinning chặt chẽ
+2. **Error Handling**: Một số exceptions chưa được xử lý đầy đủ
+3. **Testing**: Chưa có unit tests coverage
+4. **Authentication**: Chưa có cơ chế xác thực người dùng
+5. **Rate Limiting**: Chưa xử lý API rate limits từ Gemini
+
+**Hướng phát triển:**
+- Thêm Burp Suite integration
+- Hỗ trợ nhiều LLM providers (OpenAI, Anthropic)
+- Docker containerization
+- CI/CD pipeline
+- Real-time vulnerability database updates
+
+---
+
+## 📚 TÀI LIỆU THAM KHẢO ĐỀ XUẤT
+
+1. LangChain Documentation: https://python.langchain.com/
+2. Google Gemini AI: https://ai.google.dev/
+3. FAISS by Facebook: https://github.com/facebookresearch/faiss
+4. Streamlit Documentation: https://docs.streamlit.io/
+5. OWASP Testing Guide: https://owasp.org/www-project-web-security-testing-guide/
+'

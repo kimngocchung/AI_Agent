@@ -565,7 +565,38 @@ Trả lời ngắn gọn, dễ hiểu, bằng tiếng Việt."""
                             elif 'output' in response:
                                 full_text = response['output']
                             elif 'actionable_intelligence' in response:
-                                full_text = response['actionable_intelligence']
+                                # === FIX: Ghép đầy đủ 4 bước của Luồng 2 (Full Plan) ===
+                                plan_sections = []
+                                
+                                # Bước 1: Recon
+                                if response.get('recon_results'):
+                                    recon = response['recon_results']
+                                    recon_text = recon.content if hasattr(recon, 'content') else str(recon)
+                                    plan_sections.append(f"## 🔍 GIAI ĐOẠN 1: KẾ HOẠCH TỔNG QUAN\n\n{recon_text}")
+                                
+                                # Bước 2: Analysis
+                                if response.get('analysis_results'):
+                                    analysis = response['analysis_results']
+                                    analysis_text = analysis.content if hasattr(analysis, 'content') else str(analysis)
+                                    plan_sections.append(f"## 🔬 GIAI ĐOẠN 2-3: PHÂN TÍCH LỖ HỔNG OWASP\n\n{analysis_text}")
+                                
+                                # Bước 3: Exploitation
+                                if response.get('exploitation_results'):
+                                    exploit = response['exploitation_results']
+                                    exploit_text = exploit.content if hasattr(exploit, 'content') else str(exploit)
+                                    plan_sections.append(f"## 💥 GIAI ĐOẠN 4: HƯỚNG DẪN KHAI THÁC CHI TIẾT\n\n{exploit_text}")
+                                
+                                # Bước 4: RAG Context - prompt đã có sẵn header, không thêm nữa
+                                if response.get('actionable_intelligence'):
+                                    rag = response['actionable_intelligence']
+                                    rag_text = rag.content if hasattr(rag, 'content') else str(rag)
+                                    plan_sections.append(rag_text)  # Không thêm header vì prompt đã có
+                                
+                                # Ghép tất cả
+                                if plan_sections:
+                                    full_text = "\n\n---\n\n".join(plan_sections)
+                                else:
+                                    full_text = response['actionable_intelligence']
                             elif 'result' in response:
                                 full_text = response['result']
                             elif 'content' in response:
@@ -780,15 +811,41 @@ with col_right:
         c_title = st.session_state.conversations[cid]["title"][:20]
         is_active = (cid == st.session_state.active_chat_id)
         
-        c1, c2 = st.columns([4, 1])
-        if c1.button(f"{'📍' if is_active else '💬'} {c_title}", key=f"c_{cid}", use_container_width=True):
-            st.session_state.active_chat_id = cid
-            st.rerun()
-        if c2.button("🗑️", key=f"d_{cid}"):
-            if len(st.session_state.conversations) > 1:
-                del st.session_state.conversations[cid]
-                if is_active: st.session_state.active_chat_id = list(st.session_state.conversations.keys())[0]
-                save_conversations(); st.rerun()
+        # Kiểm tra nếu đang edit conversation này
+        editing_key = f"editing_{cid}"
+        is_editing = st.session_state.get(editing_key, False)
+        
+        if is_editing:
+            # Hiển thị text input để đổi tên
+            new_title = st.text_input(
+                "Tên mới:",
+                value=st.session_state.conversations[cid]["title"],
+                key=f"rename_{cid}",
+                label_visibility="collapsed"
+            )
+            col_save, col_cancel_edit = st.columns(2)
+            if col_save.button("✅", key=f"save_{cid}", help="Lưu"):
+                st.session_state.conversations[cid]["title"] = new_title
+                st.session_state[editing_key] = False
+                save_conversations()
+                st.rerun()
+            if col_cancel_edit.button("❌", key=f"cancel_{cid}", help="Hủy"):
+                st.session_state[editing_key] = False
+                st.rerun()
+        else:
+            # Hiển thị bình thường với 3 nút: tên, edit, xóa
+            c1, c2, c3 = st.columns([4, 0.7, 0.7])
+            if c1.button(f"{'📍' if is_active else '💬'} {c_title}", key=f"c_{cid}", use_container_width=True):
+                st.session_state.active_chat_id = cid
+                st.rerun()
+            if c2.button("✏️", key=f"e_{cid}", help="Đổi tên"):
+                st.session_state[editing_key] = True
+                st.rerun()
+            if c3.button("🗑️", key=f"d_{cid}", help="Xóa"):
+                if len(st.session_state.conversations) > 1:
+                    del st.session_state.conversations[cid]
+                    if is_active: st.session_state.active_chat_id = list(st.session_state.conversations.keys())[0]
+                    save_conversations(); st.rerun()
 
     # Suggested Questions (Lấy từ Sources)
     st.markdown("---")

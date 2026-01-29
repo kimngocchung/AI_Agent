@@ -10,7 +10,7 @@ router_template = """Bạn là bộ phân loại ý định thông minh. Dựa v
 ## CÁC LUỒNG XỬ LÝ:
 
 ### 1. `execute_pentest_tool`
-**MỤC ĐÍCH:** Người dùng muốn HÀNH ĐỘNG - thực thi, chạy, quét, kiểm tra một target cụ thể.
+**MỤC ĐÍCH:** Người dùng muốn HÀNH ĐỘNG - thực thi, chạy, quét, tạo/cải tiến script.
 
 **Ý ĐỊNH ĐIỂN HÌNH:**
 - Muốn chạy một công cụ/script để kiểm tra bảo mật
@@ -18,6 +18,9 @@ router_template = """Bạn là bộ phân loại ý định thông minh. Dựa v
 - Xác nhận thực hiện một hành động đã được đề xuất trước đó
 - Yêu cầu tạo và thực thi script exploit
 - Tiếp tục hoặc đồng ý với một đề xuất tool từ cuộc hội thoại trước
+- **CẢI TIẾN script** có sẵn (thêm tính năng, sửa đổi script)
+- **TẠO script mới** từ script gốc (viết script, tạo script)
+- **SỬA/NÂNG CẤP script** (upgrade, improve, enhance script)
 
 ### 2. `specific_vulnerability_info`
 **MỤC ĐÍCH:** Người dùng muốn TÌM HIỂU - hỏi thông tin, kiến thức về lỗ hổng/bảo mật.
@@ -56,7 +59,29 @@ router_template = """Bạn là bộ phân loại ý định thông minh. Dựa v
 - Kiểm tra cấu hình bảo mật trong code
 - Đọc và phân tích file source code cụ thể
 
-### 6. `general_conversation`
+### 6. `needs_clarification`
+**MỤC ĐÍCH:** Câu hỏi CHƯA ĐỦ THÔNG TIN để xử lý, cần hỏi lại người dùng.
+
+**DẤU HIỆU NHẬN BIẾT:**
+- Câu hỏi quá ngắn/chung chung mà KHÔNG có ngữ cảnh từ lịch sử chat
+- Thiếu thông tin quan trọng:
+  - Muốn pentest nhưng KHÔNG có target (URL/IP)
+  - Muốn scan nhưng KHÔNG rõ loại lỗ hổng
+  - Muốn lập kế hoạch nhưng KHÔNG biết tech stack
+- Sử dụng đại từ mơ hồ ("nó", "website đó", "cái này") mà KHÔNG có antecedent trong lịch sử
+
+**VÍ DỤ CÂU HỎI MƠ HỒ:**
+- "Tôi muốn pentest website" → Thiếu URL, tech stack
+- "Scan lỗ hổng giúp tôi" → Thiếu target, loại lỗ hổng
+- "Kiểm tra bảo mật" → Quá chung chung
+- "Tìm bug đi" → Thiếu mọi thông tin
+
+**LƯU Ý QUAN TRỌNG:**
+- CHỈ chọn luồng này khi THỰC SỰ thiếu thông tin để xử lý
+- Nếu lịch sử chat ĐÃ CÓ đủ context → KHÔNG chọn luồng này
+- Nếu câu hỏi ngắn nhưng rõ ràng ("CVE-2021-44228 là gì?") → KHÔNG chọn luồng này
+
+### 7. `general_conversation`
 **MỤC ĐÍCH:** Giao tiếp xã giao, không liên quan đến pentesting.
 
 **Ý ĐỊNH ĐIỂN HÌNH:**
@@ -85,8 +110,60 @@ router_prompt = PromptTemplate.from_template(router_template)
 
 
 # ==============================================================================
+# 1.5. CLARIFICATION PROMPT (Luồng hỏi lại người dùng)
+# ==============================================================================
+clarification_template = """Bạn là AI Agent chuyên về bảo mật. Câu hỏi của người dùng **CHƯA ĐỦ THÔNG TIN** để bạn xử lý hiệu quả.
+
+**Nhiệm vụ:** Hỏi lại người dùng một cách THÂN THIỆN và CHUYÊN NGHIỆP để thu thập thêm thông tin cần thiết.
+
+**Lịch sử hội thoại:**
+{chat_history}
+
+**Câu hỏi hiện tại của người dùng:** {user_input}
+
+**HƯỚNG DẪN:**
+
+1. **Xác định thiếu thông tin gì:**
+   - Target (URL/IP/Domain)?
+   - Tech stack (Frontend: React/Angular? Backend: Spring Boot/Node.js? Database: MySQL/MongoDB?)?
+   - Loại lỗ hổng quan tâm (IDOR, XSS, SQL Injection, RCE...)?
+   - Phạm vi kiểm thử (Chỉ frontend, cả backend, API...)?
+
+2. **Đặt câu hỏi RÕ RÀNG:**
+   - Liệt kê từng thông tin cần
+   - Đưa ra VÍ DỤ cụ thể cho mỗi câu hỏi
+   - Có thể gợi ý các lựa chọn phổ biến
+
+**FORMAT OUTPUT:**
+
+## 📋 Cần thêm thông tin
+
+Để hỗ trợ bạn hiệu quả hơn, tôi cần một vài thông tin:
+
+1. **[Thông tin 1]?**
+   - Ví dụ: [ví dụ cụ thể]
+
+2. **[Thông tin 2]?**
+   - Ví dụ: [ví dụ cụ thể]
+
+3. **[Thông tin 3]?** (nếu cần)
+   - Các lựa chọn: A, B, C
+
+💡 **Mẹo:** Nếu bạn cung cấp đầy đủ thông tin, tôi có thể:
+- [Lợi ích 1]
+- [Lợi ích 2]
+
+---
+
+**Câu trả lời của bạn (Hỏi lại người dùng):**
+"""
+clarification_prompt = PromptTemplate.from_template(clarification_template)
+
+
+# ==============================================================================
 # 2. AGENT SYSTEM PROMPT (Luồng 3 - Thực thi Tool)
 # ==============================================================================
+
 agent_system_prompt_template = """
 Bạn là "Cyber-Mentor", một AI Agent CỐ VẪN Penetration Testing CHUYÊN SÂU.
 
@@ -343,25 +420,25 @@ VÍ DỤ:
 
 🚨 **QUY TẮC BẮT BUỘC:**
 
-1. **LUÔN GỌI TOOL** khi user yêu cầu script:
-   - "viết script..." → `generate_exploit_script`
-   - "tạo script..." → `generate_exploit_script`
-   - "cải tiến script..." → `generate_exploit_script`
-   - "từ script X viết script Y..." → `generate_exploit_script(base_script_name="X", request="Y")`
-   - "script để đọc file..." → `generate_exploit_script`
+1. **LUÔN INVOKE TOOL THẬT SỰ** khi user yêu cầu script:
+   - "viết script..." → INVOKE `generate_exploit_script`
+   - "tạo script..." → INVOKE `generate_exploit_script`
+   - "cải tiến script..." → INVOKE `generate_exploit_script`
+   - "từ script X viết script Y..." → INVOKE `generate_exploit_script(base_script_name="X", request="Y")`
+   - "script để đọc file..." → INVOKE `generate_exploit_script`
 
-2. **Giải thích CHI TIẾT** trước khi gọi tool:
-   - Phân tích script gốc, cách hoạt động
-   - Giải thích cần sửa đổi gì để đáp ứng yêu cầu
-   - Sau đó GỌI TOOL để tạo script thực sự
+2. **KHÔNG BAO GIỜ VIẾT TÊN TOOL NHƯ TEXT:**
+   - ❌ SAI: Output text như `generate_exploit_script(request="...", ...)`
+   - ✅ ĐÚNG: Sử dụng Action/Action Input để GỌI tool thực sự
    
-3. **QUAN TRỌNG:** Sau khi giải thích chi tiết, PHẢI gọi tool để TẠO SCRIPT THỰC SỰ
-   - ❌ CHỈ giải thích mà KHÔNG gọi tool
-   - ✅ Giải thích chi tiết + GỌI TOOL
+3. **FORMAT GỌI TOOL (BẮT BUỘC):**
+   - Nếu cần giải thích → Giải thích NGẮN GỌN (1-2 câu)
+   - Sau đó NGAY LẬP TỨC invoke tool bằng Action/Action Input
+   - KHÔNG viết `generate_exploit_script(...)` như text trong response
 
 4. Truyền TARGET từ yêu cầu user
 5. Truyền RAG_CONTEXT nếu có thông tin bổ sung
-6. Sau khi script tạo/chạy xong → Phân tích code (tóm tắt + thay đổi mới) và phân tích kết quả chạy rõ ràng cho user
+6. Sau khi script tạo/chạy xong → Phân tích kết quả cho user
 """
 
 
@@ -542,71 +619,297 @@ rag_direct_prompt = PromptTemplate.from_template(rag_direct_template)
 # ==============================================================================
 # Cập nhật: Step 1 (Recon) sẽ kiểm tra đầu vào trước
 
-# Bước 1: Thu thập thông tin & Kiểm tra
+# Bước 1: Thu thập thông tin & Phân tích Tech Stack
 recon_template = """
-**Nhiệm vụ:** Bạn là chuyên gia pentest. Hãy phân tích yêu cầu lập kế hoạch của người dùng.
-
-**QUY TẮC QUAN TRỌNG - PHẢI HỎI LẠI NẾU THIẾU THÔNG TIN:**
-
-1. Kiểm tra xem người dùng đã cung cấp ĐỦ thông tin sau chưa:
-   - **Mục tiêu cụ thể:** URL, IP, hoặc tên hệ thống (ví dụ: "example.com", "192.168.1.100")
-   - **Loại hệ thống:** Web app, API, Mobile app, Network, Cloud...
-   - **Công nghệ:** PHP, Node.js, React, .NET, WordPress...
-
-2. **NẾU YÊU CẦU QUÁ CHUNG CHUNG** (ví dụ: "lập kế hoạch pentest", "pentest cho website"...):
-   
-   ⚠️ **KHÔNG ĐƯỢC TỰ GIẢ ĐỊNH!** Thay vào đó, PHẢI hỏi lại người dùng:
-   
-   ```
-   Để lập kế hoạch pentest hiệu quả, tôi cần thêm thông tin:
-   
-   1. **Mục tiêu cụ thể là gì?** (URL, IP, hoặc tên hệ thống)
-   2. **Loại hệ thống?** (Web app, API, Mobile, Network...)
-   3. **Công nghệ sử dụng?** (PHP, Node.js, React, WordPress...)
-   4. **Phạm vi kiểm thử?** (Chỉ frontend, cả backend, database...)
-   
-   Ví dụ: "Pentest cho website https://example.com sử dụng React + Node.js"
-   ```
-
-3. **CHỈ TIẾP TỤC** khi có ít nhất 1 trong các thông tin: mục tiêu cụ thể, loại hệ thống, hoặc công nghệ.
+**Nhiệm vụ:** Bạn là chuyên gia pentest. Hãy lập kế hoạch pentest CHI TIẾT dựa trên tech stack mà user cung cấp.
 
 **Yêu cầu của người dùng:** "{user_input}"
 
-**Phân tích và phản hồi của bạn:**
+**OUTPUT BẮT BUỘC - KẾ HOẠCH ĐẦY ĐỦ 5 GIAI ĐOẠN:**
+
+---
+
+# 📋 KẾ HOẠCH PENTEST CHO [TECH STACK]
+
+## 🔍 PHÂN TÍCH TECH STACK
+
+| Thành phần | Công nghệ | Đặc điểm bảo mật cần chú ý |
+|------------|-----------|---------------------------|
+| Frontend | [React/Angular/Vue...] | XSS, CSRF tokens |
+| Backend | [Spring Boot/Node.js...] | IDOR, Injection, Auth |
+| Database | [MySQL/MongoDB...] | SQL/NoSQL Injection |
+| Authentication | [JWT/Session...] | Token security |
+| API | [REST/GraphQL...] | Rate limiting, Auth |
+
+---
+
+## 📡 GIAI ĐOẠN 1: THU THẬP THÔNG TIN (RECONNAISSANCE)
+
+### 1.1 OSINT (Open Source Intelligence)
+| Hoạt động | Tool | Command/URL |
+|-----------|------|-------------|
+| Whois Lookup | whois | `whois domain.com` |
+| DNS Enumeration | dig, nslookup | `dig domain.com ANY` |
+| Subdomain Discovery | subfinder, amass | `subfinder -d domain.com` |
+| Technology Detection | Wappalyzer, BuiltWith | Extension/Website |
+| Git History | git-dumper | `git-dumper URL output/` |
+
+### 1.2 Technology Fingerprinting cho [TECH STACK]
+- **[Backend specific]**: Kiểm tra headers, error pages
+- **[Database specific]**: Port default, connection strings
+- **[Framework specific]**: Actuator endpoints, debug pages
+
+---
+
+## � GIAI ĐOẠN 2: QUÉT LỖ HỔNG (SCANNING)
+
+### 2.1 Port & Service Scanning
+```bash
+# Nmap - Quét port và version
+nmap -sV -sC -p 80,443,3306,8080 target.com
+
+# Nmap - Full scan
+nmap -A -T4 target.com
+```
+
+### 2.2 Web Vulnerability Scanning
+| Tool | Mục đích | Command |
+|------|----------|---------|
+| Nikto | Web server scan | `nikto -h target.com` |
+| OWASP ZAP | Auto scan | GUI |
+| Burp Suite | Manual + Auto | GUI |
+| dirb/gobuster | Directory enum | `gobuster dir -u URL -w wordlist` |
+
+### 2.3 Kiểm tra đặc thù cho [TECH STACK]
+- **[Nếu Spring Boot]**: Check `/actuator/*` endpoints
+- **[Nếu MySQL]**: Check port 3306, default creds
+- **[Nếu JWT]**: Check algorithm, expiration
+
+---
+
+## 📊 GIAI ĐOẠN 3: PHÂN TÍCH (ANALYSIS)
+
+### 3.1 OWASP Top 10 Checklist cho [TECH STACK]
+| # | Vulnerability | Điểm kiểm tra specific |
+|---|--------------|----------------------|
+| A01 | Broken Access Control | [Endpoints cần test IDOR] |
+| A02 | Cryptographic Failures | [Password storage, HTTPS] |
+| A03 | Injection | [SQL/NoSQL injection points] |
+| A05 | Security Misconfiguration | [Framework specific configs] |
+| A07 | Auth Failures | [Login, session, JWT] |
+
+### 3.2 Business Logic Analysis
+- Workflow vulnerabilities
+- Rate limiting bypass
+- Payment logic flaws
+
+---
+
+## 💥 GIAI ĐOẠN 4: KHAI THÁC (EXPLOITATION)
+
+**(Chi tiết sẽ được bổ sung ở bước sau với payloads cụ thể)**
+
+---
+
+## 📝 GIAI ĐOẠN 5: BÁO CÁO (REPORTING)
+
+### Template báo cáo:
+1. **Executive Summary** - Tóm tắt cho management
+2. **Technical Details** - Chi tiết lỗ hổng + PoC
+3. **Risk Rating** - CVSS scoring
+4. **Recommendations** - Cách khắc phục
+
+---
+
+**LƯU Ý: Đây là kế hoạch tổng quan. Phần Khai thác chi tiết với payloads cụ thể sẽ được bổ sung ở bước tiếp theo.**
 """
 recon_prompt = PromptTemplate.from_template(recon_template)
 
-# Bước 2: Phân tích lỗ hổng
+# Bước 2: Phân tích lỗ hổng - CHI TIẾT THEO TECH STACK
 analysis_template = """
-**Nhiệm vụ:** Dựa trên kết quả phân tích công nghệ ở bước trước, hãy liệt kê các lỗ hổng tiềm năng.
+**Nhiệm vụ:** Dựa trên tech stack được xác định, liệt kê các lỗ hổng OWASP Top 10 CỤ THỂ cho tech stack này.
 
-**Kết quả bước trước:**
+**Tech Stack được phân tích:**
 {recon_results}
 
-**Danh sách các lỗ hổng tiềm tàng (OWASP Top 10):**
+**BẮT BUỘC: Với MỖI lỗ hổng trong OWASP Top 10, phải chỉ rõ:**
+
+---
+
+## A01 - BROKEN ACCESS CONTROL (IDOR, Privilege Escalation)
+
+**Điểm kiểm tra với [TECH STACK NÀY]:**
+- [Liệt kê cụ thể các endpoints/functions cần test]
+- [Ví dụ: Spring Boot: @GetMapping("/user/{{id}}") không check ownership]
+
+**Payload mẫu:**
+```
+[Payload cụ thể]
+```
+
+---
+
+## A02 - CRYPTOGRAPHIC FAILURES
+
+**Điểm kiểm tra với [TECH STACK NÀY]:**
+- [Liệt kê cụ thể]
+
+---
+
+## A03 - INJECTION (SQL/NoSQL/Command/LDAP)
+
+**Điểm kiểm tra với [TECH STACK NÀY]:**
+- [Ví dụ: MySQL + Spring JPA: Kiểm tra native queries, @Query annotations]
+- [Ví dụ: MongoDB: Kiểm tra $where, $regex trong queries]
+
+**Payload mẫu cho [DATABASE TYPE]:**
+```sql
+-- MySQL
+' OR '1'='1
+' UNION SELECT username, password FROM users--
+
+-- MongoDB  
+{{"$ne": null}}
+{{"$gt": ""}}
+```
+
+---
+
+## A04 - INSECURE DESIGN
+
+## A05 - SECURITY MISCONFIGURATION
+
+**Điểm kiểm tra với [TECH STACK NÀY]:**
+- [Ví dụ: Spring Boot Actuator endpoints lộ]
+- [Ví dụ: Express.js CORS misconfigured]
+
+---
+
+## A06 - VULNERABLE COMPONENTS
+
+## A07 - AUTHENTICATION FAILURES
+
+## A08 - SOFTWARE AND DATA INTEGRITY FAILURES
+
+## A09 - SECURITY LOGGING FAILURES
+
+## A10 - SSRF (Server-Side Request Forgery)
+
+---
+
+**OUTPUT PHẢI ĐẦY ĐỦ 10 MỤC TRÊN VỚI THÔNG TIN CỤ THỂ CHO TECH STACK!**
 """
 analysis_prompt = PromptTemplate.from_template(analysis_template)
 
-# Bước 3: Lên kế hoạch khai thác
+# Bước 3: Lên kế hoạch khai thác - CHI TIẾT VỚI PAYLOADS
 exploitation_template = """
-**Nhiệm vụ:** Xây dựng kế hoạch khai thác chi tiết dựa trên danh sách lỗ hổng.
+**Nhiệm vụ QUAN TRỌNG:** Tạo hướng dẫn khai thác CHI TIẾT cho TỮNG lỗ hổng OWASP.
 
-**Danh sách lỗ hổng:**
+**Danh sách lỗ hổng đã phân tích:**
 {analysis_results}
 
-**Kế hoạch hành động chi tiết (Công cụ & Payload):**
+**FORMAT OUTPUT BẮT BUỘC - VỚI MỖI LỖ HỔNG:**
+
+---
+
+### 🔴 [TÊN LỖ HỔNG] - [Vị trí: Backend/Frontend/Database]
+
+**1. 🎯 Điểm tấn công cụ thể:**
+- Endpoint: `POST /api/users/login`
+- Parameter: `username`, `password`
+- Header: `Authorization`
+
+**2. 🛠️ Tools sử dụng:**
+| Tool | Mục đích | Command |
+|------|---------|--------|
+| Burp Suite | Intercept requests | - |
+| SQLMap | Auto exploit SQLi | `sqlmap -u "URL" --dbs` |
+| Hydra | Brute force | `hydra -l admin -P wordlist.txt` |
+
+**3. 💣 Payloads khai thác (COPY-PASTE ĐƯỢC):**
+
+```http
+# Request mẫu
+POST /api/login HTTP/1.1
+Host: target.com
+Content-Type: application/json
+
+{{"username": "admin' OR '1'='1", "password": "anything"}}
+```
+
+```sql
+-- SQL Injection payloads
+' OR '1'='1' --
+' UNION SELECT null, username, password FROM users --
+admin'--
+```
+
+**4. 📊 Dấu hiệu thành công:**
+- Response 200 thay vì 401
+- Trả về nhiều records hơn bình thường
+- Error message lộ cấu trúc database
+
+**5. 📝 Bước khai thác từ A-Z:**
+1. Sử dụng Burp Suite intercept request login
+2. Thử payload `' OR '1'='1` vào field username
+3. Nếu bypass được, dùng UNION-based để extract data
+4. Dùng SQLMap để tự động hóa
+
+---
+
+**LƯU Ý: PHẢI ĐƯA RA PAYLOADS CỤ THỂ CHO:**
+- **MySQL**: `' UNION SELECT`, `LOAD_FILE()`, `INTO OUTFILE`
+- **Spring Boot**: SpEL injection, Actuator exploit, Thymeleaf SSTI
+- **MongoDB**: `{{"$ne": null}}`, `{{"$where": "sleep(5000)"}}` 
+- **JWT**: `alg: none`, key confusion attacks
+- **IDOR**: Thay đổi userId, orderId trong URL/body
+
+**Kế hoạch khai thác chi tiết:**
 """
 exploitation_prompt = PromptTemplate.from_template(exploitation_template)
 
-# Bước 4: Tạo Payload từ RAG
-rag_enhanced_template = """
-**Nhiệm vụ:** Tạo payload cụ thể và hướng dẫn sử dụng dựa trên kiến thức RAG.
+# Bước 4: Tạo Payload từ RAG - KẾT HỢP KIẾN THỨC
+rag_enhanced_template = """**Nhiệm vụ:** Dựa vào RAG context, CHỈ BỔ SUNG thêm payloads, techniques, và CVE liên quan.
 
-**Bối cảnh:**
-- Kế hoạch: {exploitation_results}
-- Kiến thức RAG: {rag_context}
+**⚠️ LƯU Ý QUAN TRỌNG:**
+- KHÔNG lặp lại hoặc copy lại nội dung từ "Kế hoạch đã có"
+- CHỈ output phần thông tin MỚI chưa có trong kế hoạch
+- Nếu RAG không có gì mới, chỉ trả về phần checklist
 
-**Payload chi tiết & Hướng dẫn:**
+**Kế hoạch đã có (ĐỌC ĐỂ HIỂU, KHÔNG LẶP LẠI):**
+{exploitation_results}
+
+**Kiến thức từ RAG (ƯU TIÊN SỬ DỤNG NẾU CÓ):**
+{rag_context}
+
+**YÊU CẦU OUTPUT - CHỈ PHẦN BỔ SUNG:**
+
+## 📚 THÔNG TIN BỔ SUNG TỪ RAG
+
+### CVEs liên quan (nếu có trong RAG)
+- CVE-XXXX-XXXX: Mô tả ngắn + điều kiện khai thác
+
+### Payloads nâng cao từ RAG
+```
+[Chỉ đưa payloads MỚI chưa có trong kế hoạch]
+```
+
+### Techniques đặc biệt
+- Bypass WAF: [Chỉ nếu có trong RAG]
+- Escalation: [Chỉ nếu có trong RAG]
+
+## ✅ CHECKLIST KIỂM TRA CUỐI
+
+- [ ] Reconnaissance hoàn tất
+- [ ] Tất cả endpoints đã test
+- [ ] Lỗ hổng ưu tiên cao đã verify
+- [ ] PoC đã tạo
+- [ ] Báo cáo đã viết
+
+**NẾU RAG KHÔNG CÓ THÔNG TIN BỔ SUNG:**
+Chỉ trả về: "Không tìm thấy thông tin bổ sung từ knowledge base. Vui lòng upload tài liệu phù hợp để có thêm CVEs và payloads nâng cao."
+
+**Output (KHÔNG LẶP LẠI EXPLOITATION RESULTS):**
 """
 rag_enhanced_prompt = PromptTemplate.from_template(rag_enhanced_template)
 

@@ -11,7 +11,7 @@ from langchain_core.documents import Document
 
 # Import các chain con và retriever
 from .chains.full_plan_chain import full_plan_chain    # LUỒNG 2 (Lên kế hoạch)
-from .chains.prompts import router_prompt, rag_direct_prompt
+from .chains.prompts import router_prompt, rag_direct_prompt, clarification_prompt
 from .chains.retriever import retrieve_docs_with_filter
 
 # <<< IMPORT LUỒNG MỚI (LUỒNG 3) >>>
@@ -142,6 +142,7 @@ TOPIC_DISPLAY_NAMES = {
     "tool_usage": "LUỒNG 1: RAG Trả Lời (Hướng Dẫn Tool)",
     "generate_full_plan": "LUỒNG 2: Lập Kế Hoạch Pentest",
     "static_code_review": "LUỒNG 4: Review Code Tĩnh",
+    "needs_clarification": "LUỒNG CLARIFY: Hỏi Lại Người Dùng",
 }
 
 # Hàm debug để log thông tin phân loại
@@ -187,12 +188,43 @@ def create_router():
     
     # 1. Chain phân loại ý định - TRUYỀN CHAT HISTORY ĐỂ HIỂU CONTEXT
     def classify_with_history(x):
+        user_input = x["user_input"].lower()
+        
+        # === PRE-CLASSIFICATION: Force route cho các keywords rõ ràng ===
+        # Script-related keywords → execute_pentest_tool
+        script_keywords = [
+            "cải tiến script", "tạo script", "viết script", "sửa script",
+            "nâng cấp script", "upgrade script", "improve script", 
+            "từ script", "dựa vào script", "chạy script",
+            "generate script", "create script", "modify script"
+        ]
+        if any(kw in user_input for kw in script_keywords):
+            print(f"🎯 [PRE-CLASSIFY] Keyword match → execute_pentest_tool")
+            return {"topic": "execute_pentest_tool", **x}
+        
+        # Code review keywords → static_code_review  
+        review_keywords = [
+            "scan thư mục", "review code", "tìm idor", "tìm xss",
+            "hardcoded", "credentials", "security scan", "full scan"
+        ]
+        if any(kw in user_input for kw in review_keywords):
+            print(f"🎯 [PRE-CLASSIFY] Keyword match → static_code_review")
+            return {"topic": "static_code_review", **x}
+        
+        # Nếu không match → để LLM phân loại
         return {
             "user_input": x["user_input"],
             "chat_history": format_chat_history(x.get("chat_history", []))
         }
     
-    classifier_chain = RunnableLambda(classify_with_history) | router_prompt | router_llm | StrOutputParser()
+    def classify_chain_logic(x):
+        # Nếu đã có topic từ pre-classification → trả về luôn
+        if "topic" in x:
+            return x["topic"]
+        # Nếu không → gọi LLM
+        return (router_prompt | router_llm | StrOutputParser()).invoke(x)
+    
+    classifier_chain = RunnableLambda(classify_with_history) | RunnableLambda(classify_chain_logic)
 
     # 2. Chain Lấy Context RAG Sớm - MỞ RỘNG QUERY DỰA TRÊN CHAT HISTORY
     def early_rag_with_filter(x):
@@ -274,8 +306,37 @@ def create_router():
         print(f"\n{'='*70}\n")
         return response
 
-    # 3. Logic Phân nhánh 3 Luồng
+    def log_clarification_response(response):
+        """Log kết quả Luồng Clarification (Hỏi lại người dùng)"""
+        print(f"\n{'='*70}")
+        print(f"❓ LUỒNG CLARIFICATION: Hỏi Lại Người Dùng")
+        print(f"{'─'*70}")
+        print(f"📤 OUTPUT (preview):")
+        print(f"   {response[:300]}{'...' if len(str(response)) > 300 else ''}")
+        print(f"{'='*70}\n")
+        return response
+
+    # Chain xử lý clarification
+    clarification_chain = (
+        RunnableLambda(
+            lambda x: {
+                "user_input": x["user_input"],
+                "chat_history": format_chat_history(x.get("chat_history", []))
+            }
+        )
+        | clarification_prompt
+        | answer_llm
+        | StrOutputParser()
+        | RunnableLambda(log_clarification_response)
+    )
+
+    # 3. Logic Phân nhánh các Luồng
     branch = RunnableBranch(
+        
+        # ĐIỀU KIỆN CLARIFY: CÂU HỎI CHƯA RÕ RÀNG → Hỏi lại người dùng
+        (lambda x: "needs_clarification" in x["topic"].lower(),
+            clarification_chain
+        ),
         
         # ĐIỀU KIỆN 0: GENERAL CONVERSATION (Chào hỏi, câu hỏi chung)
         (lambda x: "general_conversation" in x["topic"].lower(),

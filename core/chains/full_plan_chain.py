@@ -67,38 +67,32 @@ chain_step4_rag_payloads = rag_enhanced_prompt | llm_plan
 
 def run_full_plan(input_data: dict) -> dict:
     """
-    Chạy full plan chain với logic kiểm tra clarification.
-    Nếu step 1 yêu cầu làm rõ → dừng và trả về câu hỏi.
+    Chạy full plan chain - LUÔN chạy đầy đủ 4 bước.
+    Không còn logic clarification vì prompt mới đã yêu cầu AI chủ động đưa kế hoạch.
     """
-    # Step 1: Recon
+    print("🟢 [PLAN] Bắt đầu lập kế hoạch chi tiết...")
+    
+    # Step 1: Recon - Phân tích tech stack và tạo kế hoạch tổng quan
+    print("   └─ Step 1: Thu thập thông tin & phân tích tech stack...")
     recon_results = chain_step1_recon.invoke({"user_input": input_data["user_input"]})
     
-    # Kiểm tra nếu cần làm rõ
-    if is_clarification_needed(recon_results):
-        print("🔶 [PLAN] Phát hiện yêu cầu chung chung - trả về câu hỏi làm rõ")
-        # Trả về chỉ với recon_results (câu hỏi làm rõ)
-        return {
-            **input_data,
-            "recon_results": recon_results,
-            "analysis_results": None,
-            "exploitation_results": None,
-            "actionable_intelligence": recon_results,  # Trả về câu hỏi làm rõ như là kết quả cuối
-        }
-    
-    print("🟢 [PLAN] Yêu cầu đủ chi tiết - tiếp tục lập kế hoạch...")
-    
-    # Step 2: Analysis
+    # Step 2: Analysis - Liệt kê lỗ hổng OWASP theo tech stack
+    print("   └─ Step 2: Phân tích lỗ hổng theo OWASP Top 10...")
     analysis_results = chain_step2_analysis.invoke({"recon_results": recon_results})
     
-    # Step 3: Exploitation Plan
+    # Step 3: Exploitation Plan - Tạo hướng dẫn khai thác chi tiết
+    print("   └─ Step 3: Lên kế hoạch khai thác với payloads cụ thể...")
     exploitation_results = chain_step3_exploit_plan.invoke({"analysis_results": analysis_results})
     
-    # Step 4: RAG Context + Payloads
+    # Step 4: RAG Context + Payloads - Bổ sung từ knowledge base
+    print("   └─ Step 4: Bổ sung thông tin từ RAG (CVEs, payloads nâng cao)...")
     rag_context = chain_rag_context.invoke(input_data["user_input"])
     actionable_intelligence = chain_step4_rag_payloads.invoke({
         "exploitation_results": exploitation_results,
         "rag_context": rag_context
     })
+    
+    print("✅ [PLAN] Hoàn thành lập kế hoạch 4 bước!")
     
     return {
         **input_data,
